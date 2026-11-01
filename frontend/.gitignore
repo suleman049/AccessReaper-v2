@@ -1,0 +1,35 @@
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+*service-account*.json
+*firebase-adminsdk*.json
+*.pem
+*.key
+
+# Dependencies and caches
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Temporary files
+work/
+*.log
+*.tmp
+
+# Generated offline bundle, downloads, and previews
+/AccessReaper.html
+*.zip
+*-preview.png
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Firebase Hosting build and local deployment cache
+/dist/
+/.firebase/
+firebase-debug*.log

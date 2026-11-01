@@ -1,0 +1,63 @@
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "database": "accessreaper-profiles",
+    "location": "asia-south1",
+    "edition": "enterprise"
+  },
+  "hosting": {
+    "site": "accessreaper",
+    "public": "dist",
+    "predeploy": [
+      "node build-hosting.cjs"
+    ],
+    "ignore": [
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          },
+          {
+            "key": "Referrer-Policy",
+            "value": "strict-origin-when-cross-origin"
+          }
+        ]
+      },
+      {
+        "source": "**/*.@(html|js|css)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, max-age=0, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, max-age=0, must-revalidate"
+          }
+        ]
+      }
+    ]
+  },
+  "auth": {
+    "providers": {
+      "emailPassword": true
+    }
+  }
+}

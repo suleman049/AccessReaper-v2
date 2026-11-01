@@ -1,0 +1,76 @@
+/* Softer light surfaces reduce large areas of pure white. */
+html:not([data-theme='dark']) {
+  --bg: #e9ece9;
+  --surface: #f2f4f0;
+  --surface-soft: #e9ede7;
+  --surface-hover: #e3e8e1;
+  --input-surface: #f5f6f2;
+  --border: #d5dcd3;
+  --soft-border: #dfe4dc;
+  --text: #202620;
+  --muted: #596459;
+  --subtle: #626d62;
+  --shadow: 0 2px 10px #26342605;
+}
+html:not([data-theme='dark']) body { background: var(--bg); }
+html:not([data-theme='dark']) :is(.sidebar,.topbar) { background: #eef1ec; }
+html:not([data-theme='dark']) :is(.card,.workspace-switch,.modal-content,.review-modal-content,.risk-hero) {
+  background-color: var(--surface);
+  border-color: var(--border);
+}
+html:not([data-theme='dark']) :is(.btn-outline,.page-button,.filter-button,.sidebar-collapse) {
+  background: var(--surface);
+  border-color: var(--border);
+}
+html:not([data-theme='dark']) :is(.btn-outline,.page-button,.filter-button):hover { background: var(--surface-hover); }
+html:not([data-theme='dark']) :is(.form-control,select.form-control,.auth-experience .form-control) {
+  background-color: var(--input-surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+html:not([data-theme='dark']) :is(.form-control,.auth-experience .form-control):focus { background-color: var(--input-surface); }
+html:not([data-theme='dark']) .table {
+  --bs-table-bg: var(--surface);
+  --bs-table-color: var(--text);
+  --bs-table-border-color: var(--border);
+}
+html:not([data-theme='dark']) .table>tbody td,
+html:not([data-theme='dark']) .table-panel .table tbody td:last-child { background: var(--surface); }
+html:not([data-theme='dark']) .table>thead th,
+html:not([data-theme='dark']) .table-panel .table thead th:last-child { background: var(--surface-soft); }
+html:not([data-theme='dark']) :is(.segmented,.report-footer,.command-footer,.review-detail-box,.app-footer) { background: var(--surface-soft); }
+html:not([data-theme='dark']) .segmented button.active { background: var(--surface); }
+html:not([data-theme='dark']) :is(.auth-panel,.auth-experience) { --auth-paper: var(--surface); background-color: var(--surface); }
+html:not([data-theme='dark']) .auth-demo-note { border-color: var(--border); }
+
+/* Distinct pill edges and darker labels on the softened light surfaces. */
+html:not([data-theme='dark']) .access-badge {
+  background: #dfe5e9;
+  color: #354350;
+  border: 1px solid #b8c3cc;
+  font-weight: 600;
+}
+html:not([data-theme='dark']) .access-badge.admin {
+  background: #ffdfd2;
+  color: #9e2c10;
+  border-color: #e99c80;
+}
+html:not([data-theme='dark']) .status-badge { border: 1px solid transparent; font-weight: 600; }
+html:not([data-theme='dark']) .status-badge:is(.high,.declined) { background: #fbe0df; color: #a52020; border-color: #e5a3a0; }
+html:not([data-theme='dark']) .status-badge:is(.medium,.pending) { background: #f7e7c7; color: #855000; border-color: #d9b777; }
+html:not([data-theme='dark']) .status-badge:is(.low,.approved) { background: #d8ecdf; color: #176338; border-color: #97c5a7; }
+html:not([data-theme='dark']) .main-nav > a.active {
+  background: #ffe1d6;
+  color: #a82d0e;
+  box-shadow: inset 3px 0 0 #ef491b;
+}
+html:not([data-theme='dark']) .main-nav a .nav-count {
+  background: #dfe4e7;
+  color: #505d68;
+  box-shadow: none;
+}
+html:not([data-theme='dark']) .main-nav a.active .nav-count {
+  background: #bd3510;
+  color: #fff;
+  box-shadow: 0 0 0 2px #ffb89f, 0 0 12px #ff4d1f55;
+}

@@ -1,0 +1,103 @@
+<USER_REQUEST>
+# PROMPT FOR ANTIGRAVITY — AccessReaper v2: Automation + all remaining phases
+
+Project: `D:\AccessReaper-v2\` (FastAPI + SQLAlchemy + the existing frontend, port 8100, DRY_RUN). Phases 1–3 are done and I tested them: real GitHub org `payhive-eng` is connected read-only and synced (31 assignments). Now complete **everything that remains**, in the stages below, **in order**. Finish and browser-verify each stage before starting the next. Write a short checkpoint note in `docs\PHASE_LOG.md` after each stage.
+
+## Rules for the whole task (same as before)
+1. **Read-only toward GitHub, DRY_RUN stays on.** No write call to any external system, ever. Approve/Remediate only change AccessReaper's own database.
+2. Existing screens keep their look. Reuse the existing design system for anything new (classes from the existing CSS files, `openDecision`, toasts, badges). New JS goes in new files, minimal hooks in old files, every changed line listed in `docs\FRONTEND_CHANGES.md`. New things must work in light, dark and 390px phone width.
+3. **Browser proof or it didn't happen.** Verify each stage in a real browser (Playwright/Chrome), save screenshots to `docs\verification\<stage>-*.png`, keep console at zero errors, and write **NOT VERIFIED** for anything you could not check. Add automated e2e/regression tests for each stage. All existing tests (53+) must keep passing; `ruff` clean.
+4. Secrets (GitHub token, Gemini key, SMTP password, encryption key, Firebase service account) live only in `.env` / `secrets\`, are never logged, never returned by any API, never sent to the browser, never committed. Add a secret-scan test that greps the repo and API responses for them.
+5. If something in the existing frontend contradicts this prompt, the frontend wins for look and behavior, except where this prompt explicitly orders a change. Make the safest assumption when unsure, document it, continue.
+
+---
+
+# STAGE 1 — Fully automatic audits (no audit button)
+
+**What I want:** nobody clicks "Run audit". The system syncs and audits **by itself every 24 hours**, and the UI shows a **countdown timer** to the next automatic audit.
+
+**Backend**
+- The schedule is **ON by default**: every 24 hours at a configurable time of day (default 02:00 Asia/Karachi). Each automatic cycle = (1) GitHub sync (if connected and dataMode is live) → (2) audit run → (3) snapshot/trend point → (4) notifications (Stage 4). Actor shown as "Automatic audit". Record `trigger: scheduled`.
+- Robustness (the app may run on a PC that sleeps): on every startup and then every 5 minutes, check `last successful automatic audit`; if more than 24 h (+ 15 min grace) ago, run **one** catch-up audit immediately. Never burst-run multiple catch-ups. Overlap lock so two audits can't run at once. If the GitHub sync fails, still run the audit on the last synced data and mark the run `degraded` with the reason (shown in the report). Retry a failed sync once after 10 min.
+- Endpoints: `GET /api/automation/status` → `{enabled, intervalHours:24, timeOfDay, nextRunAt, lastRun:{id,at,status,trigger}, secondsUntilNext, catchUpPending}`. `PUT /api/automation/config` → only `timeOfDay` and `enabled` (pause/resume). Pausing requires a note, writes an audit-log event, and the UI shows a clear "Automatic audits paused" warning everywhere the timer shows.
+- **Remove the manual trigger from the product:** `POST /api/audits/run` must no longer be callable from the browser. Keep the audit service function for the scheduler and tests; expose a manual endpoint only when `ENV=dev` and `ALLOW_MANUAL_AUDIT=true` (default false).
+
+**Frontend (this is an explicitly requested change to existing screens)**
+- Remove the **"Run audit"** button (Access audit page header), the **"Run access audit"** button (Overview header) and any `data-run-audit` triggers. Do not leave empty gaps: replace them in the same spot with a compact **Next automatic audit** status chip in the existing badge/button-outline style: `Next audit in 05:42:10` (live ticking countdown, updates every second, uses server time offset so it's correct even if the PC clock is off) plus small text `Last audit: <time> · Automatic`.
+- While an automatic audit is running, show "Audit in progress…" (the existing in-progress state), and refresh data automatically when it finishes (poll `/api/automation/status` every 15–30 s; on a new completed run, reload bootstrap and show a toast "Automatic audit completed").
+- The existing "Latest completed audit" cards and "View full report" stay. The empty state text "Run an audit to create a snapshot" must be changed to "The first automatic audit runs <time>".
+- Settings → the existing **Scheduled audits** card becomes **Automatic audits**: shows status, interval (fixed 24 h), time-of-day picker, pause/resume (with required note), next run and last runs list. Remove the daily/weekly/off options.
+- Search palette / any other place offering "run audit": remove.
+
+**Optional local auto-start (document + provide scripts):** because it's running on a Windows PC, add `tools\Install-AutoStart.cmd` / `Remove-AutoStart.cmd` that register the launcher with Windows Task Scheduler (at logon, hidden window) so the app and its timer come back after a reboot, and a note that the real 24/7 solution is Stage 6 deployment.
+
+---
+
+# STAGE 2 — Triage quality for real data
+
+Real data produced 31 High findings simply because no GitHub login is linked to an employee. Make this manageable:
+- **Bulk identity linking:** table UI in the Unmatched panel with a dropdown/typed-email per row and one "Save all" (single transaction, one audit event per link), plus **CSV import** (`github_login,email,name,team,employment_status`) with a preview/validation step, and **auto-suggest** (match by login ↔ email local part / display name similarity, shown as suggestions the admin confirms — never auto-applied).
+- Allow marking a login as **Bot/Service account** or **Ignored (accepted risk)** with required note; ignored/bot accounts are excluded from unmatched findings but remain visible and audited.
+- Let the admin create/edit identities (name, email, team, role, employment status Active/Contractor/Former, current project) with required note + audit event (`PUT/POST /api/identities`), and a simple **People** section reachable from the existing Users page (tab) — additive.
+- Unmatched severity: High only if the account has Admin/Write on at least one repo, else Medium (verify this is what the rule config does; make both values editable in the Risk rules card).
+- Add a "Why this score?" breakdown in the finding detail (which rules fired, points each) using data the engine already returns.
+
+---
+
+# STAGE 3 — Remaining rules: Separation of Duties (SoD) and orphan accounts
+
+Add to the pure scoring module and to the rule-config card (each rule: enable flag, points, editable, versioned, previewable; defaults must not change existing results on the 12 sample records):
+- **SoD — conflicting access pairs:** configurable table `sod_conflicts` (resource-pattern A × access level, resource-pattern B × access level, description). Example default: Admin on `*terraform*`/`*infra*` + Admin on `*payment*`/`*billing*`. A person who holds both → finding "Separation of duties conflict" with evidence for both assignments.
+- **SoD — approval integrity (enforced, not just flagged):** a person can never approve or reject their **own** access request (compare the approving admin's email to the requester's email) → 409 with a clear message; recorded in the audit log as a blocked attempt.
+- **Orphan rules:** (a) assignment whose identity is unmatched/unknown (exists), (b) identity with `active` status but zero assignments for N days (config), (c) repository with **no Admin/owner** or only **one** admin (bus-factor), (d) archived repository still granting Write/Admin, (e) outside collaborator with Admin/Write on a repo older than N days with no recent activity.
+- Show these findings through the existing tables with new, clear reason text; recommended actions stay within the existing vocabulary (Revoke / Reduce / Keep) plus "Assign owner" for (c) rendered as plain text recommendation (no new buttons).
+- Tests per rule (boundaries, enable/disable, preview). Update `docs\ENGINE.md`.
+
+---
+
+# STAGE 4 — AI explanations (Gemini) and notifications
+
+**Gemini explanations (replace the "Gemini · Preview" stub)**
+- Server-side only, `GEMINI_API_KEY` in `.env`, model name from `GEMINI_MODEL` env (don't hardcode; document a sensible default), use the official Google GenAI Python SDK.
+- For each completed audit, generate (a) an **executive summary** and (b) a short **plain-language explanation + recommended next step** for each High/Medium finding. Generate once per audit run and **cache** in the DB (`ai_explanations`: run id, finding id, text, model, generated_at, status). Never call the model on page load.
+- Privacy: send only minimal structured facts (role, team, access level, rule names fired, inactivity days, resource name). **No tokens, no secrets, no emails** (use pseudonyms like "User A") unless `GEMINI_SEND_REAL_NAMES=true`. Treat all repository names/notes as untrusted data inside the prompt (guard against prompt injection: fixed system instruction, data in a delimited JSON block, ignore instructions found inside data).
+- Output is advisory: label every AI text **"AI-generated — verify before acting"**; AI output never changes scores, recommendations, or permissions.
+- Graceful fallback: if no key / quota / error / timeout, use the existing deterministic template text and show the existing "Preview" label; with a key and success show "Gemini". Per-run cap on calls and a cost-safety limit (config).
+- Frontend: only change the label and text source in the existing summary/detail places; no layout changes.
+
+**Notifications**
+- In-app notification center (additive): bell icon in the topbar using existing icon-button style, unread count, panel listing events: audit completed, new High findings, approvals pending > X hours, sync failed/degraded, automatic audits paused/overdue, user awaiting activation. Mark read / mark all read. Stored in DB per admin.
+- Email (optional, off until configured): SMTP settings in `.env` (host, port, user, password, from) — never in the browser. After each automatic audit send **one daily digest** to active admins (summary, new High findings, pending approvals, degraded warnings) with a link to the app (`PUBLIC_BASE_URL`). Per-admin opt-out toggle and a "Send test email" button in Settings. Rate-limit and de-duplicate (never send the same digest twice).
+- Settings card **Notifications** (additive) for the above.
+
+---
+
+# STAGE 5 — Hardening and quality pass
+
+- Security review and fixes: dependency audit (`pip-audit`), security headers/CSP re-check with all new pages, rate limits on mutating endpoints, input limits on all new bodies (CSV import size/rows cap, file type check), CSRF-safe design (bearer tokens only, no cookie auth), no secrets in logs (log redaction test), audit-log append-only verified again on all new event types.
+- Performance: indexes for new filter columns, pagination on all list endpoints, N+1 check on bootstrap with several thousand assignments (seed a 5,000-assignment test set, measure, keep bootstrap < 1 s or split into paged endpoints without changing UI behavior).
+- Backup/restore: `tools\backup.cmd` / `restore.cmd` for the SQLite DB; document backing up `APP_ENCRYPTION_KEY` (losing it makes stored tokens unreadable).
+- Full regression: run every test, plus a complete browser walk-through of every screen and feature from Phase 1 to here in light/dark/phone.
+
+---
+
+# STAGE 6 — Production readiness: PostgreSQL and deployment
+
+- Support PostgreSQL via `DATABASE_URL` (SQLite stays the local default). All Alembic migrations must run on both. Re-implement the **append-only audit_log protection for Postgres** (trigger functions raising on UPDATE/DELETE, plus revoke UPDATE/DELETE from the app role where possible) and test it against a real Postgres (use Docker/testcontainers or `docker compose` in the test instructions).
+- `tools\migrate_sqlite_to_postgres.py`: copies all data safely (dry-run mode, row-count verification, audit-log order preserved).
+- Scheduler safety in multi-process hosting: use a DB-level lock (Postgres advisory lock / table lease) so only one instance runs automatic audits; document running a single replica.
+- `Dockerfile` (non-root user, minimal image, healthcheck) and `docker-compose.yml` (app + postgres + volume), `/api/health/ready` (DB + scheduler status), structured JSON logs, graceful shutdown.
+- `docs\DEPLOYMENT.md`: step-by-step options for always-on hosting (a small VPS with Docker + HTTPS reverse proxy such as Caddy; or a managed container platform such as Google Cloud Run/Render with managed Postgres), environment variable table, HTTPS, adding the production domain to Firebase **Authorized domains**, updating Firestore/Auth settings, secret management, rotating tokens, monitoring, backups, rollback. Do **not** deploy anything yourself; only prepare and document, and verify `docker compose up` works locally if Docker is available (otherwise mark NOT VERIFIED).
+- Update `README.md` (project root) with the product description, architecture, feature list, setup, security model and limitations.
+
+---
+
+## Final deliverable
+After all six stages: update `docs\API_CONTRACT.md`, `ENGINE.md`, `SECURITY.md`, `RUN_GUIDE.md`, `FRONTEND_CHANGES.md`, `PHASE_LOG.md`, and create `docs\FINAL_TEST_CHECKLIST.md` (browser steps + expected results for every feature, grouped by stage). Final report: what was built per stage, screenshot list, test counts, every item marked NOT VERIFIED with the reason, assumptions, known limitations, and what I must configure myself (Gemini key, SMTP, production host). Then **stop**.
+
+## Still out of scope
+Any write/remediation action against GitHub or other live systems, Active Directory/LDAP, cloud IAM providers, multi-tenant/multi-organization support, mobile apps.
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-10-22T10:22:26+05:00.
+</ADDITIONAL_METADATA>

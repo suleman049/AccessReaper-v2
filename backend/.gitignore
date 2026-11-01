@@ -1,0 +1,24 @@
+# Python virtualenv & bytecode
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment and secrets
+.env
+secrets/
+*.json
+!alembic.ini
+
+
+# SQLite database file
+data/*.db
+data/*.db-journal
+
+# Pytest & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Ruff & tooling
+.ruff_cache/

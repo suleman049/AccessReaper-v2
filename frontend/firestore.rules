@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      // Each user may fetch/watch their own profile, not enumerate users.
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow list: if false;
+      // Signup can only request pending access. Console/Admin SDK controls activation.
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasAll(['uid','name','email','organizationId','role','status','createdAt'])
+        && request.resource.data.keys().hasOnly(['uid','name','email','organizationId','role','status','createdAt'])
+        && request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.organizationId == 'acme'
+        && request.resource.data.role == 'pending'
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+    // Audit findings, approvals and organization data are not integrated yet.
+    match /{document=**} { allow read, write: if false; }
+  }
+}

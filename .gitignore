@@ -1,0 +1,45 @@
+# Virtual environments
+backend/.venv/
+.venv/
+env/
+venv/
+
+# Environment and sensitive credential files
+backend/.env
+.env
+*.env
+backend/secrets/
+secrets/
+*.pem
+*.key
+
+# Python caches and bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Database files
+backend/data/*.db
+backend/data/*.db-shm
+backend/data/*.db-wal
+backend/data/*.db-journal
+*.db
+*.sqlite3
+
+# Test, browser, and lint caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+tools/chrome_profile/
+
+# Temporary and backup folders
+_frontend_original_backup/
+*.backup
+*.bak
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
