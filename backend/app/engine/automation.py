@@ -356,6 +356,8 @@ def process_jit_expirations(db: Session) -> int:
                 logger.error("Failed to revoke collaborator @%s on GitHub live during JIT expiration: %s", username, exc)
 
         a.access_level = "None"
+        a.is_temporary = False
+        a.expires_at = None
         a.resolved = True
         a.current_risk = "Low"
         a.reason = "Temporary JIT access expired automatically"

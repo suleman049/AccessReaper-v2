@@ -330,6 +330,11 @@ def run_github_sync(
                             existing.last_active_at = last_active_at
                             existing.last_active_text = last_active_text
                         existing.external_status = "active"
+                        # If an old temporary lease already reached its expiration timestamp, clear is_temporary
+                        if getattr(existing, "is_temporary", False) and getattr(existing, "expires_at", None):
+                            if existing.expires_at <= now:
+                                existing.is_temporary = False
+                                existing.expires_at = None
                         sync_run.assignments_updated += 1
                     else:
                         assignment_id = _get_next_assignment_id(db)
