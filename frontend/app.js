@@ -871,7 +871,10 @@ document.addEventListener('submit',async e=>{
 
     const submitBtn = document.querySelector('#req-submit-btn');
 
-    if(submitBtn) submitBtn.disabled = true;
+    if(submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Provisioning on GitHub…';
+    }
 
     try {
 
@@ -887,15 +890,18 @@ document.addEventListener('submit',async e=>{
 
       render();
 
-      decisionFeedback(`Access request submitted for ${displayName} on ${repo_name}${duration_hours ? ` (${duration_hours}h JIT)` : ''}.`);
+      decisionFeedback(`Access granted & collaborator provisioned for ${displayName} on ${repo_name}${duration_hours ? ` (${duration_hours}h JIT)` : ''}!`);
 
     } catch(err) {
 
-      showToast(err.message || 'Could not submit access request.');
+      showToast(err.message || 'Could not grant access.');
 
     } finally {
 
-      if(submitBtn) submitBtn.disabled = false;
+      if(submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Grant & Provision Access';
+      }
 
     }
 

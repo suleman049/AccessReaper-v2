@@ -225,3 +225,76 @@ def test_admin_reset_sample(client: TestClient, auth_headers: dict):
     assert summary["medium"] == 1
     assert summary["healthy"] == 5
     assert summary["pending"] == 4
+
+def test_admin_direct_onboard_workflow(client: TestClient, auth_headers: dict):
+    """Verifies that an admin onboarding an employee immediately approves & provisions without pending loop."""
+    try:
+        payload = {
+            "github_login": "test-new-dev",
+            "name": "Test New Dev",
+            "email": "testdev@payhive.internal",
+            "repo_name": "payhive-eng/payment-gateway",
+            "access_level": "Write",
+            "duration_hours": 0,
+            "business_reason": "Direct administrative onboarding of backend developer",
+        }
+        resp = client.post("/api/approvals", json=payload, headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "Approved"
+        assert data["person"] == "Test New Dev"
+        assert data["access"] == "Write"
+        assert data["repo"] == "payhive-eng/payment-gateway"
+
+        # Verify assignment is active in DB
+        assign_resp = client.get("/api/assignments?q=testdev@payhive.internal", headers=auth_headers)
+        assert assign_resp.status_code == 200
+        items = assign_resp.json()["items"]
+        assert len(items) >= 1
+        assert any(a["repo"] == "payhive-eng/payment-gateway" and a["access"] == "Write" for a in items)
+    finally:
+        client.post("/api/admin/reset-sample", headers=auth_headers)
+
+
+def test_public_request_pending_and_approval_workflow(client: TestClient, auth_headers: dict):
+    """Verifies public requests queue as Pending, and Admin approval completes onboarding."""
+    try:
+        payload = {
+            "github_login": "external-contributor",
+            "name": "External Contributor",
+            "email": "external.contrib@example.com",
+            "repo_name": "payhive-eng/mobile-app",
+            "access_level": "Read",
+            "duration_hours": 24,
+            "business_reason": "Security audit collaborator",
+        }
+        # Unauthenticated public request
+        resp = client.post("/api/requests/public", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "Pending"
+        req_id = data["id"]
+
+        # Pending in approvals queue
+        q_resp = client.get("/api/approvals?status=Pending", headers=auth_headers)
+        assert q_resp.status_code == 200
+        pending_ids = [r["id"] for r in q_resp.json()]
+        assert req_id in pending_ids
+
+        # Admin approves external request
+        dec_resp = client.post(
+            f"/api/approvals/{req_id}/decision",
+            json={"action": "Approved", "note": "Approved contractor read access for 24h"},
+            headers=auth_headers,
+        )
+        assert dec_resp.status_code == 200
+        assert dec_resp.json()["status"] == "Approved"
+
+        # Verify assignment exists
+        a_resp = client.get("/api/assignments?q=external.contrib@example.com", headers=auth_headers)
+        assert a_resp.status_code == 200
+        items = a_resp.json()["items"]
+        assert len(items) >= 1
+        assert items[0]["access"] == "Read"
+    finally:
+        client.post("/api/admin/reset-sample", headers=auth_headers)

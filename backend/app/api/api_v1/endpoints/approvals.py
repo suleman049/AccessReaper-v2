@@ -24,6 +24,7 @@ from app.db.models import (
     GitHubConfig,
     Identity,
     Resource,
+    Setting,
     utc_now,
 )
 from app.db.session import get_db
@@ -194,6 +195,24 @@ def decide_approval_request(
                     repo_full = req.resource.name
                     repo_short = repo_full.split("/")[-1] if "/" in repo_full else repo_full
                     with GitHubClient(token=token, base_url=settings.GITHUB_API_BASE) as gh_client:
+                        # Auto-fetch user details (real name & public email) from GitHub profile
+                        try:
+                            gh_profile = gh_client.get_user_profile(github_login)
+                            if gh_profile and req.identity:
+                                gh_name = gh_profile.get("name")
+                                gh_email = gh_profile.get("email")
+                                if gh_name and (not req.identity.name or req.identity.name == github_login or req.identity.name == "External Collaborator"):
+                                    req.identity.name = gh_name
+                                if gh_email and (not req.identity.email or "@payhive.internal" in req.identity.email or "@github.unmatched" in req.identity.email):
+                                    req.identity.email = gh_email.lower()
+                                    from app.db.models import GitHubIdentityMap
+                                    gh_map = db.query(GitHubIdentityMap).filter(GitHubIdentityMap.login == github_login).first()
+                                    if gh_map:
+                                        gh_map.email = gh_email.lower()
+                                        db.flush()
+                        except Exception as fetch_exc:
+                            logger.warning("Could not auto-fetch GitHub profile for @%s: %s", github_login, fetch_exc)
+
                         if target_access == "None":
                             gh_client.remove_repository_collaborator(org=owner, repo=repo_short, username=github_login)
                             if assignment:
@@ -242,7 +261,7 @@ def decide_approval_request(
                 identity_id=req.identity_id,
                 resource_id=req.resource_id,
                 access_level=target_access,
-                origin="github" if is_github_resource else "sample",
+                origin=("github" if (db.query(Setting).filter(Setting.key == "dataMode").first() and db.query(Setting).filter(Setting.key == "dataMode").first().value == "live") else ("github" if is_live_github else "sample")),
                 github_login=github_login,
                 last_active_at=utc_now(),
                 last_active_text="Approved access",
@@ -435,21 +454,39 @@ def _process_access_request(
     actor: str,
     is_public: bool = False,
 ) -> ApprovalSchema:
+    login_clean = payload.github_login.strip().lstrip("@") if payload.github_login else None
+
+    # Pre-fetch profile from GitHub if login is provided to get real name & email
+    gh_config = db.query(GitHubConfig).first()
+    gh_profile = None
+    if login_clean and gh_config and gh_config.connected and gh_config.encrypted_token:
+        try:
+            from app.core.crypto import decrypt_secret
+            from app.integrations.github.client import GitHubClient
+            token = decrypt_secret(gh_config.encrypted_token)
+            with GitHubClient(token=token, base_url=settings.GITHUB_API_BASE) as gh_client:
+                gh_profile = gh_client.get_user_profile(login_clean)
+                if gh_profile:
+                    if gh_profile.get("name") and (not payload.name or payload.name == login_clean):
+                        payload.name = gh_profile["name"]
+                    if gh_profile.get("email") and (not payload.email or "@payhive.internal" in payload.email):
+                        payload.email = gh_profile["email"].lower()
+        except Exception as exc:
+            logger.warning("Could not pre-fetch GitHub profile for @%s: %s", login_clean, exc)
+
     identity = None
     if payload.identity_id:
         identity = db.query(Identity).filter(Identity.id == payload.identity_id).first()
     elif payload.email:
         identity = db.query(Identity).filter(Identity.email == payload.email.strip().lower()).first()
 
-    if not identity and payload.github_login:
-        login_clean = payload.github_login.strip().lstrip("@")
+    if not identity and login_clean:
         from app.db.models import GitHubIdentityMap
         gh_map = db.query(GitHubIdentityMap).filter(GitHubIdentityMap.login == login_clean).first()
         if gh_map and gh_map.email:
             identity = db.query(Identity).filter(Identity.email == gh_map.email.lower()).first()
 
     if not identity:
-        login_clean = (payload.github_login or "").strip().lstrip("@")
         email_clean = payload.email.strip().lower() if payload.email else (f"{login_clean}@payhive.internal" if login_clean else None)
         if email_clean:
             name = payload.name or (login_clean if login_clean else email_clean.split("@")[0].replace(".", " ").title())
@@ -476,6 +513,14 @@ def _process_access_request(
                 elif not gh_map.email:
                     gh_map.email = email_clean
                     db.flush()
+    else:
+        # Existing identity: enrich with latest fetched info if currently placeholder
+        if gh_profile:
+            if gh_profile.get("name") and (not identity.name or identity.name == login_clean or identity.name == "External Collaborator"):
+                identity.name = gh_profile["name"]
+            if gh_profile.get("email") and ("@payhive.internal" in identity.email or "@github.unmatched" in identity.email):
+                identity.email = gh_profile["email"].lower()
+                db.flush()
 
     if not identity:
         raise HTTPException(
@@ -519,15 +564,254 @@ def _process_access_request(
             is_sensitive=resource.is_sensitive,
         ),
         access_level=payload.access_level,
-        last_activity_text="New request",
+        last_activity_text="New onboard" if not is_public else "New request",
     )
 
+    now_karachi = datetime.now(KARACHI_TZ)
+    reviewed_at_str = now_karachi.strftime("%b %d, %Y, %I:%M %p").replace(" 0", " ")
+
+    if not is_public:
+        # ---------------------------------------------------------------------
+        # ADMIN DIRECT ONBOARDING / PROVISIONING
+        # Directly approved, live provisioned on GitHub, and recorded immediately
+        # ---------------------------------------------------------------------
+        is_live_github = False
+        target_access = payload.access_level
+        is_github_resource = (resource.source == "GitHub" or "/" in resource.name)
+
+        if is_github_resource and login_clean:
+            if gh_config and gh_config.connected and gh_config.encrypted_token and getattr(settings, "ENABLE_LIVE_GITHUB_REVOCATION", True):
+                try:
+                    from app.core.crypto import decrypt_secret
+                    from app.integrations.github.client import GitHubClient
+                    token = decrypt_secret(gh_config.encrypted_token)
+                    owner = gh_config.org_name
+                    repo_full = resource.name
+                    repo_short = repo_full.split("/")[-1] if "/" in repo_full else repo_full
+                    with GitHubClient(token=token, base_url=settings.GITHUB_API_BASE) as gh_client:
+                        gh_client.update_repository_collaborator_permission(
+                            org=owner, repo=repo_short, username=login_clean, permission=target_access
+                        )
+                    is_live_github = True
+                    logger.info("Admin onboarded @%s on %s/%s to '%s'", login_clean, owner, repo_short, target_access)
+                except Exception as exc:
+                    logger.error("Live GitHub collaborator direct provisioning error for @%s: %s", login_clean, exc)
+
+        # Assignment resolution & update
+        assignment = (
+            db.query(Assignment)
+            .options(joinedload(Assignment.finding))
+            .filter(
+                Assignment.identity_id == identity.id,
+                Assignment.resource_id == resource.id,
+            )
+            .with_for_update()
+            .first()
+        )
+
+        before_access = assignment.access_level if assignment else "None"
+
+        if not assignment:
+            existing_ids = db.query(Assignment.id).all()
+            max_num = 2840
+            for (eid,) in existing_ids:
+                if eid.startswith("FND-"):
+                    try:
+                        max_num = max(max_num, int(eid[4:]))
+                    except ValueError:
+                        pass
+            new_id = f"FND-{max_num + 1}"
+
+            assignment = Assignment(
+                id=new_id,
+                identity_id=identity.id,
+                resource_id=resource.id,
+                access_level=target_access,
+                origin=("github" if (db.query(Setting).filter(Setting.key == "dataMode").first() and db.query(Setting).filter(Setting.key == "dataMode").first().value == "live") else ("github" if is_live_github else "sample")),
+                github_login=login_clean,
+                external_status="active",
+                last_active_at=utc_now(),
+                last_active_text="Onboarded by admin",
+                resolved=target_access != "Admin",
+                reviewed_at=reviewed_at_str,
+                current_risk="High" if target_access == "Admin" else "Low",
+                reason="Approved elevated access requires periodic review"
+                if target_access == "Admin"
+                else "Directly onboarded by admin",
+            )
+            db.add(assignment)
+
+            finding = Finding(
+                id=new_id,
+                assignment_id=new_id,
+                original_reason=assignment.reason,
+                original_severity=assignment.current_risk,
+                original_access=target_access,
+                detected_at=utc_now(),
+                status="Open" if target_access == "Admin" else "Approved change",
+                snapshot={
+                    "role": identity.job_role,
+                    "team": identity.team,
+                    "source": resource.source,
+                    "lastActiveAt": utc_now().isoformat(),
+                    "lastActivity": "Onboarded by admin",
+                },
+                evidence=eval_res.evidence,
+            )
+            db.add(finding)
+        else:
+            assignment.access_level = target_access
+            assignment.external_status = "active"
+            assignment.reviewed_at = reviewed_at_str
+            if login_clean and not assignment.github_login:
+                assignment.github_login = login_clean
+            if target_access == "Admin" and before_access != "Admin":
+                assignment.resolved = False
+                assignment.current_risk = "High"
+                if assignment.finding:
+                    assignment.finding.status = "Open"
+            elif target_access != "Admin":
+                assignment.resolved = True
+                if assignment.finding:
+                    assignment.finding.status = "Approved change"
+
+        expires_at = None
+        if payload.duration_hours and payload.duration_hours > 0 and target_access != "None":
+            from datetime import timedelta
+            expires_at = utc_now() + timedelta(hours=payload.duration_hours)
+            assignment.is_temporary = True
+            assignment.expires_at = expires_at
+            assignment.warning_email_sent_at = None
+        else:
+            assignment.is_temporary = False
+            assignment.expires_at = None
+
+        # Directly Approved AccessRequest record
+        req = AccessRequest(
+            id=req_id,
+            identity_id=identity.id,
+            resource_id=resource.id,
+            requested_access=payload.access_level,
+            type=payload.type or "Admin Onboarding / Direct Grant",
+            duration_hours=payload.duration_hours,
+            business_reason=payload.business_reason,
+            risk="High" if target_access == "Admin" else "Low",
+            status="Approved",
+            requested_at=utc_now(),
+            requested_text="Just now",
+            decided_by=actor,
+            decided_at=utc_now(),
+            expires_at=expires_at,
+        )
+        db.add(req)
+
+        # Audit log entry for direct grant
+        event_id = f"EVT-{int(time.time() * 1000)}"
+        log_entry = AuditLog(
+            id=event_id,
+            actor=actor,
+            tag="Approved",
+            title="Employee onboarded & access granted",
+            detail=f"{identity.name} · {resource.name}{f' (Live GitHub: @{login_clean})' if is_live_github else ''}",
+            note=payload.business_reason or "Direct admin onboarding & permission grant",
+            source=resource.source,
+            assignment_id=assignment.id,
+            request_id=req_id,
+            before=before_access,
+            after=target_access,
+            tone="green",
+            icon="✓",
+            mode="LIVE_GITHUB" if is_live_github else "DRY_RUN",
+            occurred_at=utc_now(),
+        )
+        db.add(log_entry)
+
+        # Take snapshot
+        assignments_all = db.query(Assignment).all()
+        high = sum(1 for a in assignments_all if not a.resolved and a.current_risk == "High")
+        medium = sum(1 for a in assignments_all if not a.resolved and a.current_risk == "Medium")
+        healthy = sum(1 for a in assignments_all if not a.resolved and a.current_risk == "Low")
+        resolved = sum(1 for a in assignments_all if a.resolved and a.finding and a.finding.original_severity != "Low")
+        remediated_count = db.query(AuditLog).filter(AuditLog.tag == "Remediated").count()
+
+        snapshot = AuditSnapshot(
+            at=utc_now(),
+            label="Employee onboarded & access granted",
+            high=high,
+            medium=medium,
+            healthy=healthy,
+            resolved=resolved,
+            assignments=len(assignments_all),
+            remediated=remediated_count,
+        )
+        db.add(snapshot)
+
+        # Dispatch security webhook alert
+        try:
+            from app.engine.webhook_service import send_security_webhook
+            duration_label = f"{int(round(payload.duration_hours * 60))} Minutes (JIT)" if (payload.duration_hours and payload.duration_hours < 1) else (f"{int(payload.duration_hours)} Hours (JIT)" if payload.duration_hours else "Permanent")
+            send_security_webhook(
+                title="Employee Onboarded & Access Granted",
+                description=f"Administrator **{actor}** directly onboarded **{identity.name}** and granted **{payload.access_level}** access on repository **{resource.name}**.",
+                color_hex="#16a34a",
+                fields=[
+                    {"name": "Resource", "value": resource.name, "inline": True},
+                    {"name": "User", "value": identity.name, "inline": True},
+                    {"name": "GitHub Login", "value": f"@{login_clean}" if login_clean else "N/A", "inline": True},
+                    {"name": "Permission", "value": payload.access_level, "inline": True},
+                    {"name": "Duration", "value": duration_label, "inline": True},
+                    {"name": "Admin Justification", "value": payload.business_reason or "Direct admin onboarding", "inline": False},
+                ],
+            )
+        except Exception as exc:
+            logger.warning("Could not dispatch webhook for direct admin onboarding: %s", exc)
+
+        # Dispatch welcome/access granted email to user
+        try:
+            from app.engine.email_service import send_approval_decision_email_to_user
+            recipient_email = identity.email
+            if recipient_email and not recipient_email.endswith("@github.unmatched"):
+                send_approval_decision_email_to_user(
+                    to_email=recipient_email,
+                    user_name=identity.name,
+                    repo_name=resource.name,
+                    action="Approved",
+                    access_level=payload.access_level,
+                    admin_name=actor,
+                    admin_note=payload.business_reason,
+                    business_reason=payload.business_reason,
+                )
+        except Exception as exc:
+            logger.warning("Could not dispatch onboarding email to user: %s", exc)
+
+        db.commit()
+        db.refresh(req)
+
+        # In-app broadcast notification for live UI updates
+        try:
+            from app.engine.notification_service import broadcast_notification
+            broadcast_notification(
+                db=db,
+                event_type="approval_decided",
+                title=f"Employee onboarded: {identity.name}",
+                message=f"{identity.name} was granted {payload.access_level} access to {resource.name} directly by {actor}.",
+                link="#people",
+            )
+        except Exception as exc:
+            logger.warning("Could not dispatch onboarding in-app notification: %s", exc)
+
+        return serialize_approval(req)
+
+    # -------------------------------------------------------------------------
+    # PUBLIC SELF-SERVICE REQUEST (Pending Review)
+    # External requests wait in the approvals queue for administrator review
+    # -------------------------------------------------------------------------
     req = AccessRequest(
         id=req_id,
         identity_id=identity.id,
         resource_id=resource.id,
         requested_access=payload.access_level,
-        type=payload.type or ("Self-service access request" if is_public else "Access request"),
+        type=payload.type or "Self-service access request",
         duration_hours=payload.duration_hours,
         business_reason=payload.business_reason,
         risk=eval_res.risk_level,
@@ -537,17 +821,17 @@ def _process_access_request(
     )
     db.add(req)
 
-    # Dispatch security webhook alert for new request
+    # Dispatch security webhook alert for public request
     try:
         from app.engine.webhook_service import send_security_webhook
         duration_str = f"{int(round(payload.duration_hours * 60))} Minutes (JIT)" if (payload.duration_hours and payload.duration_hours < 1) else (f"{int(payload.duration_hours)} Hours (JIT)" if payload.duration_hours else "Permanent")
         send_security_webhook(
-            title="New Access Request Submitted" if not is_public else "New Public Access Request Submitted",
-            description=f"**{identity.name}** submitted an access request for **{payload.access_level}** access on **{resource.name}**.",
+            title="New Public Access Request Submitted",
+            description=f"External user **{identity.name}** requested **{payload.access_level}** access on **{resource.name}**.",
             color_hex="#3b82f6",
             fields=[
                 {"name": "User", "value": identity.name, "inline": True},
-                {"name": "GitHub Login", "value": f"@{payload.github_login.strip().lstrip('@')}" if payload.github_login else "N/A", "inline": True},
+                {"name": "GitHub Login", "value": f"@{login_clean}" if login_clean else "N/A", "inline": True},
                 {"name": "Resource", "value": resource.name, "inline": True},
                 {"name": "Permission", "value": payload.access_level, "inline": True},
                 {"name": "Duration", "value": duration_str, "inline": True},
@@ -555,14 +839,14 @@ def _process_access_request(
             ],
         )
     except Exception as exc:
-        logger.warning("Could not dispatch webhook for new access request: %s", exc)
+        logger.warning("Could not dispatch webhook for public access request: %s", exc)
 
     event_id = f"EVT-{int(time.time() * 1000)}"
     log_entry = AuditLog(
         id=event_id,
         actor=actor,
         tag="Request",
-        title="New access request submitted" if not is_public else "Public self-service access request submitted",
+        title="Public self-service access request submitted",
         detail=f"{identity.name} · {resource.name} · {payload.access_level}",
         note=payload.business_reason,
         source=resource.source,
@@ -579,7 +863,7 @@ def _process_access_request(
     # In-app broadcast notification for live UI updates
     try:
         from app.engine.notification_service import broadcast_notification
-        user_tag = f"@{payload.github_login.strip().lstrip('@')}" if payload.github_login else identity.name
+        user_tag = f"@{login_clean}" if login_clean else identity.name
         broadcast_notification(
             db=db,
             event_type="access_requested",
@@ -591,6 +875,7 @@ def _process_access_request(
         logger.warning("Could not dispatch access requested in-app notification: %s", exc)
 
     return serialize_approval(req)
+
 
 
 @router.post("/approvals", response_model=ApprovalSchema)

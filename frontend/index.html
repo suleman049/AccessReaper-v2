@@ -118,7 +118,7 @@
 
   <div class="modal fade" id="review-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content review-modal-content" id="review-modal-body"></div></div></div>
 
-  <div class="modal fade" id="request-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content review-modal-content" style="padding:24px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;font-size:18px;font-weight:700;">Employee Access Request</h3><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Request repository permissions for existing team members or onboard a new hire. Approving provisions them directly on GitHub with real-time audit logging.</p><form id="access-request-form">
+  <div class="modal fade" id="request-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content review-modal-content" style="padding:24px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;font-size:18px;font-weight:700;">Employee Access & Direct Onboarding</h3><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Grant repository permissions to existing team members or onboard a new hire. Submitting provisions access directly on GitHub with real-time audit logging.</p><form id="access-request-form">
 
     <div style="display:flex;background:var(--bg-subtle, #f1f5f9);padding:4px;border-radius:8px;margin-bottom:16px;gap:4px;">
 
@@ -144,7 +144,7 @@
 
         <input type="text" class="form-control" id="req-github-input" placeholder="e.g. suleman049 or @octocat" />
 
-        <small style="font-size:11px;color:var(--muted);display:block;margin-top:2px;">Target account on GitHub where collaborator permissions will be granted upon admin approval.</small>
+        <small style="font-size:11px;color:var(--muted);display:block;margin-top:2px;">Target account on GitHub. Collaborator permissions will be provisioned live on GitHub immediately upon submit.</small>
 
       </div>
 
@@ -242,7 +242,7 @@
 
       <button type="button" class="btn btn-outline" data-bs-dismiss="modal">Cancel</button>
 
-      <button type="submit" class="btn btn-primary" id="req-submit-btn">Submit Request</button>
+      <button type="submit" class="btn btn-primary" id="req-submit-btn" style="background:#16a34a;border-color:#16a34a;font-weight:700;">Grant & Provision Access</button>
 
     </div>
 
