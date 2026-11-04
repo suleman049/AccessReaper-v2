@@ -344,6 +344,8 @@ def send_approval_decision_email_to_user(
     admin_name: str = "Administrator",
     admin_note: str | None = None,
     business_reason: str | None = None,
+    github_login: str | None = None,
+    duration_hours: float | None = None,
 ) -> bool:
     """
     Sends an automated notification email to the user whose access request was approved or declined.
@@ -355,15 +357,27 @@ def send_approval_decision_email_to_user(
     is_approved = (action == "Approved")
 
     if is_approved:
-        subject = f"[AccessReaper] Access Request Approved: {repo_name} ({access_level})"
-        title_text = "Access Request Approved"
+        duration_label = f"{int(round(duration_hours * 60))} Minutes (JIT)" if (duration_hours and duration_hours < 1) else (f"{int(duration_hours)} Hours (JIT)" if duration_hours else "Permanent")
+        subject = f"[AccessReaper] Access Granted: {repo_name} ({access_level})"
+        title_text = "Repository Access Granted & Provisioned"
         badge_bg = "#f0fdf4"
         badge_border = "#bbf7d0"
         badge_color = "#166534"
-        action_desc = f"your access request for <strong>{repo_name}</strong> has been <strong>approved</strong> with <strong>{access_level}</strong> permissions"
+        action_desc = f"you have been granted <strong>{access_level}</strong> access on <strong>{repo_name}</strong> on GitHub"
+        gh_user_tag = f"@{github_login}" if github_login else "your linked GitHub account"
+        jit_line = f"<li><strong>Temporary Access Duration:</strong> Valid for <strong>{duration_label}</strong>. When expired, AccessReaper automatically revokes your collaborator permissions.</li>" if (duration_hours and duration_hours > 0) else "<li><strong>Permanent Access:</strong> Access will remain active subject to governance review.</li>"
         button_html = f"""
         <div style="margin:20px 0;">
-          <a href="https://github.com/{repo_name}" style="background:#ff4d1f;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:600;font-size:14px;display:inline-block;">Open Repository in GitHub &rarr;</a>
+          <a href="https://github.com/{repo_name}" style="background:#16a34a;color:#ffffff;text-decoration:none;padding:11px 22px;border-radius:6px;font-weight:700;font-size:14px;display:inline-block;margin-right:8px;margin-bottom:8px;">Open Repository on GitHub &rarr;</a>
+          <a href="https://github.com/{repo_name}/invitations" style="background:#f1f5f9;color:#334155;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:600;font-size:13px;display:inline-block;border:1px solid #cbd5e1;margin-bottom:8px;">Accept Pending Invite &rarr;</a>
+        </div>
+        <div style="margin-top:16px;padding:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:12.5px;color:#475569;line-height:1.5;">
+          <strong style="color:#0f172a;">Important Instructions to Avoid 404 Errors:</strong>
+          <ul style="margin:6px 0 0 18px;padding:0;">
+            <li><strong>Private Repository:</strong> Ensure you are logged in to GitHub as <strong>{gh_user_tag}</strong> before opening. GitHub shows a 404 error if you are logged out or using a different account.</li>
+            <li><strong>Accept Pending Invite:</strong> If this is your first time collaborating on this repository, you must accept the invite at <a href="https://github.com/{repo_name}/invitations" style="color:#ff4d1f;">https://github.com/{repo_name}/invitations</a>.</li>
+            {jit_line}
+          </ul>
         </div>
         """
     else:

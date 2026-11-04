@@ -863,7 +863,12 @@ document.addEventListener('submit',async e=>{
 
       payload.email = email;
 
-      displayName = email;
+      const personObj = people.find(p => p.email && p.email.toLowerCase() === (email || '').toLowerCase() && p.githubLogin);
+      if (personObj && personObj.githubLogin) {
+        payload.github_login = personObj.githubLogin;
+      }
+
+      displayName = personObj && personObj.githubLogin ? `@${personObj.githubLogin}` : email;
 
     }
 

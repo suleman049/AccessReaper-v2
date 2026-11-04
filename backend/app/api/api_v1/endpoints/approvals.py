@@ -383,6 +383,8 @@ def decide_approval_request(
                 admin_name=user.name or "Administrator",
                 admin_note=payload.note,
                 business_reason=req.business_reason,
+                github_login=github_login,
+                duration_hours=req.duration_hours,
             )
     except Exception as exc:
         logger.warning("Could not dispatch approval decision email: %s", exc)
@@ -521,6 +523,17 @@ def _process_access_request(
             if gh_profile.get("email") and ("@payhive.internal" in identity.email or "@github.unmatched" in identity.email):
                 identity.email = gh_profile["email"].lower()
                 db.flush()
+
+    # If identity is resolved but login_clean was not supplied, auto-lookup from mappings or past assignments
+    if identity and not login_clean:
+        from app.db.models import GitHubIdentityMap
+        gh_map = db.query(GitHubIdentityMap).filter(GitHubIdentityMap.email == identity.email.lower()).first()
+        if gh_map and gh_map.login:
+            login_clean = gh_map.login
+        else:
+            prev_a = db.query(Assignment).filter(Assignment.identity_id == identity.id, Assignment.github_login.isnot(None)).first()
+            if prev_a and prev_a.github_login:
+                login_clean = prev_a.github_login
 
     if not identity:
         raise HTTPException(
@@ -780,6 +793,8 @@ def _process_access_request(
                     admin_name=actor,
                     admin_note=payload.business_reason,
                     business_reason=payload.business_reason,
+                    github_login=login_clean,
+                    duration_hours=payload.duration_hours,
                 )
         except Exception as exc:
             logger.warning("Could not dispatch onboarding email to user: %s", exc)
