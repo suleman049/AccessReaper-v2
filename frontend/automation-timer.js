@@ -40,7 +40,7 @@ const AutomationTimer = {
         ApiClient.bootstrap().then((data) => {
           if (ApiClient.syncState) ApiClient.syncState(data);
           if (typeof render === "function") render();
-          if (typeof showToast === "function") showToast("Automatic audit completed");
+          if (typeof showToast === "function") showToast("15m cycle audit completed");
         }).catch((err) => console.error("Could not refresh data after automatic audit:", err));
       }
     }
@@ -61,7 +61,18 @@ const AutomationTimer = {
 
   startPolling() {
     if (this.pollId) clearInterval(this.pollId);
-    this.pollId = setInterval(() => this.fetchStatus(), 20000);
+    this.pollId = setInterval(() => this.fetchStatus(), 15000);
+    if (!this._visibilityBound) {
+      this._visibilityBound = true;
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+          if (this.pollId) { clearInterval(this.pollId); this.pollId = null; }
+        } else {
+          this.fetchStatus();
+          if (!this.pollId) this.pollId = setInterval(() => this.fetchStatus(), 15000);
+        }
+      });
+    }
   },
 
   startTicking() {
@@ -72,6 +83,17 @@ const AutomationTimer = {
   tick() {
     this.updateDom();
     this.updateJitBadges();
+    const st = this.status || window.automationStatus;
+    if (st && st.nextRunAt && st.enabled) {
+      const target = new Date(st.nextRunAt).getTime();
+      const now = Date.now() + this.timeOffset;
+      if (now >= target && !this._fetchingOnZero) {
+        this._fetchingOnZero = true;
+        setTimeout(() => {
+          this.fetchStatus().finally(() => { this._fetchingOnZero = false; });
+        }, 1200);
+      }
+    }
   },
 
   updateJitBadges() {
@@ -149,16 +171,16 @@ const AutomationTimer = {
         <span class="badge badge-outline automation-chip">
           <span class="chip-dot active"></span> Next audit in <span class="countdown-clock" id="countdown-clock-val">--:--:--</span>
         </span>
-        <span class="automation-subtext">Automatic 24-hour cycle</span>
+        <span class="automation-subtext">15m cycle 15-minute cycle</span>
       </div>`;
     }
 
     if (!st.enabled) {
-      return `<div class="automation-chip-wrap" id="automation-chip-wrap" title="${st.pauseNote ? 'Paused: ' + safe(st.pauseNote) : 'Automatic audits paused'}">
+      return `<div class="automation-chip-wrap" id="automation-chip-wrap" title="${st.pauseNote ? 'Paused: ' + safe(st.pauseNote) : '15m cycle audits paused'}">
         <span class="badge badge-warning automation-chip paused">
-          <span class="chip-dot paused"></span> Automatic audits paused
+          <span class="chip-dot paused"></span> 15m cycle audits paused
         </span>
-        <span class="automation-subtext">${safe(st.pauseNote ? 'Paused: ' + st.pauseNote : 'Paused by admin · 24h schedule off')}</span>
+        <span class="automation-subtext">${safe(st.pauseNote ? 'Paused: ' + st.pauseNote : 'Paused by admin · 15m schedule off')}</span>
       </div>`;
     }
 
@@ -194,7 +216,7 @@ const AutomationTimer = {
           ${uiIcon('zap', 12)} <span>Run Auto-Audit</span>
         </button>
       </div>
-      <span class="automation-subtext">Last audit: ${safe(lastAuditText)} · Automatic</span>
+      <span class="automation-subtext">Last audit: ${safe(lastAuditText)} · 15m cycle</span>
     </div>`;
   },
 

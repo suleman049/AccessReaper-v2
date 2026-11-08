@@ -360,22 +360,37 @@ def remediate_finding(
             except Exception as exc:
                 logger.error("Live GitHub collaborator management error for @%s: %s", assignment.github_login, exc)
 
-    # Dispatch automated email notice to user upon access revocation or permission reduction
-    try:
-        from app.engine.email_service import send_revocation_email_to_user
-        recipient_email = assignment.identity.email
-        if recipient_email and not recipient_email.endswith("@github.unmatched"):
-            send_revocation_email_to_user(
-                to_email=recipient_email,
-                user_name=assignment.identity.name,
-                repo_name=assignment.resource.name,
-                previous_access=before_access,
-                reason=assignment.reason or (assignment.finding.original_reason if assignment.finding else "IAM access governance review"),
-                admin_note=payload.note,
-                new_access=target_access,
-            )
-    except Exception as exc:
-        logger.warning("Could not dispatch user access notice email: %s", exc)
+    # Dispatch automated email notice to user asynchronously in background
+    def _dispatch_revoc_email(to_email, u_name, r_name, prev_acc, reason_text, adm_note, new_acc):
+        try:
+            from app.engine.email_service import send_revocation_email_to_user
+            if to_email and not to_email.endswith("@github.unmatched"):
+                send_revocation_email_to_user(
+                    to_email=to_email,
+                    user_name=u_name,
+                    repo_name=r_name,
+                    previous_access=prev_acc,
+                    reason=reason_text,
+                    admin_note=adm_note,
+                    new_access=new_acc,
+                )
+        except Exception as exc:
+            logger.warning("Could not dispatch user access notice email: %s", exc)
+
+    import threading
+    threading.Thread(
+        target=_dispatch_revoc_email,
+        args=(
+            assignment.identity.email if assignment.identity else None,
+            assignment.identity.name if assignment.identity else "",
+            assignment.resource.name if assignment.resource else "",
+            before_access,
+            assignment.reason or (assignment.finding.original_reason if assignment.finding else "IAM access governance review"),
+            payload.note,
+            target_access,
+        ),
+        daemon=True,
+    ).start()
 
     # Update assignment & finding in one transaction
     assignment.access_level = target_access

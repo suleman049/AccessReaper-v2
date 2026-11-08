@@ -114,10 +114,10 @@ const ScheduleSettings = {
               <h2>Automatic audits</h2>
               ${isPaused
                 ? `<span class="badge badge-warning" style="background:#fff4ed;color:#b54708;border:1px solid #fedf89;padding:4px 8px;border-radius:6px;font-weight:600;font-size:12px;">Paused</span>`
-                : `<span class="badge badge-success" style="background:#ecfdf3;color:#027a48;border:1px solid #a6f4c5;padding:4px 8px;border-radius:6px;font-weight:600;font-size:12px;">Active (Every 24 hours)</span>`
+                : `<span class="badge badge-success" style="background:#ecfdf3;color:#027a48;border:1px solid #a6f4c5;padding:4px 8px;border-radius:6px;font-weight:600;font-size:12px;">Active (Continuous 15-minute audits)</span>`
               }
             </div>
-            <p>The system syncs and audits by itself every 24 hours. All schedules run in <b>Asia/Karachi (PKT)</b> timezone.</p>
+            <p>The system syncs and audits by itself every 15 minutes. All schedules run in <b>Asia/Karachi (PKT)</b> timezone.</p>
           </div>
         </div>
 
@@ -125,12 +125,12 @@ const ScheduleSettings = {
           <div class="schedule-row">
             <label>Interval</label>
             <div style="font-size:13px;font-weight:600;color:var(--text);padding:6px 0;">
-              Fixed 24 hours (Daily recurring)
+              Continuous 15-minute drift scan & scheduled audit
             </div>
           </div>
 
           <div class="schedule-row" id="sched-time-row">
-            <label for="sched-time">Daily execution time (PKT)</label>
+            <label for="sched-time">Next execution window (PKT)</label>
             <input type="time" id="sched-time" class="form-control" value="${this.timeOfDay || "02:00"}" style="max-width: 160px;" ${isPaused ? 'disabled' : ''}>
           </div>
 

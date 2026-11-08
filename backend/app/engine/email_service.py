@@ -128,6 +128,33 @@ def send_daily_audit_digest(db: Session, run: AuditRun, recipients: list[str]) -
     if not is_smtp_configured() or not recipients:
         return 0
 
+    # Smart filtering: Skip email if health score and findings are identical to previous audit run
+    from app.db.models import AuditRun
+    previous_run = (
+        db.query(AuditRun)
+        .filter(AuditRun.id != run.id)
+        .order_by(AuditRun.created_at.desc())
+        .first()
+    )
+    if previous_run:
+        score_same = getattr(run, "health_score", None) == getattr(previous_run, "health_score", None)
+        high_same = run.high == previous_run.high
+        medium_same = run.medium == previous_run.medium
+        if score_same and high_same and medium_same:
+            logger.info(
+                "Audit run %s health score (%s) and findings (%d high, %d med) identical to previous run %s. "
+                "Skipping email digest to avoid spamming administrators.",
+                run.id,
+                getattr(run, "health_score", "N/A"),
+                run.high,
+                run.medium,
+                previous_run.id,
+            )
+            return 0
+
+    # Clean and de-duplicate recipients
+    recipients = list(dict.fromkeys([r.strip() for r in recipients if r and r.strip()]))
+
     # Count pending approvals
     pending_approvals_count = db.query(AccessRequest).filter(AccessRequest.status == "Pending").count()
 

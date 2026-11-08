@@ -5,10 +5,22 @@ const ApiClient = {
   isDemoMode: false,
   loaded: false,
 
+  _cachedToken: null,
+  _tokenExpiresAt: 0,
+
   async getToken() {
+    const now = Date.now();
+    if (this._cachedToken && now < this._tokenExpiresAt) {
+      return this._cachedToken;
+    }
     if (window.FirebaseIdentity?.user) {
       try {
-        return await window.FirebaseIdentity.user.getIdToken();
+        const token = await window.FirebaseIdentity.user.getIdToken();
+        if (token) {
+          this._cachedToken = token;
+          this._tokenExpiresAt = now + 120000;
+          return token;
+        }
       } catch (err) {
         console.warn("Could not retrieve Firebase token:", err);
       }
@@ -22,11 +34,17 @@ const ApiClient = {
     };
 
     const token = await this.getToken();
+    const currentUserEmail = window.FirebaseIdentity?.user?.email || window.AccessReaperAuth?.user?.email;
+    if (currentUserEmail) {
+      headers["X-Dev-User"] = currentUserEmail;
+    }
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
     } else if (!headers["Authorization"]) {
       headers["Authorization"] = "Bearer dev-token";
-      headers["X-Dev-User"] = "admin@payhive-eng.internal";
+      if (!headers["X-Dev-User"]) {
+        headers["X-Dev-User"] = "24sw049@gmail.com";
+      }
     }
 
     if (options.body && typeof options.body === "object" && !(options.body instanceof FormData)) {
@@ -238,12 +256,18 @@ const ApiClient = {
   // --- Phase 2: Server-side Reports ---
   async downloadBlob(url, filename) {
     const token = await this.getToken();
+    const currentUserEmail = window.FirebaseIdentity?.user?.email || window.AccessReaperAuth?.user?.email;
     const headers = {};
+    if (currentUserEmail) {
+      headers["X-Dev-User"] = currentUserEmail;
+    }
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
     } else {
       headers["Authorization"] = "Bearer dev-token";
-      headers["X-Dev-User"] = "admin@payhive-eng.internal";
+      if (!headers["X-Dev-User"]) {
+        headers["X-Dev-User"] = "24sw049@gmail.com";
+      }
     }
     let res;
     try {

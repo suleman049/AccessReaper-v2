@@ -308,6 +308,32 @@ class GitHubClient:
         except GitHubNotFoundError:
             return {"login": username}
 
+    def get_user_last_activity(self, username: str) -> dict[str, Any] | None:
+        """
+        Retrieves the latest activity for a user across GitHub:
+        1. Checks /users/{username}/events/public (pushes, PRs, comments)
+        2. Fallback to /users/{username} profile (updated_at)
+        """
+        try:
+            resp = self._get(f"users/{username}/events/public", params={"per_page": 5})
+            events = resp.json()
+            if isinstance(events, list) and len(events) > 0:
+                for ev in events:
+                    created_at = ev.get("created_at")
+                    if created_at:
+                        return {"date": created_at, "type": ev.get("type", "Activity")}
+        except Exception as exc:
+            logger.debug("Failed public events lookup for @%s: %s", username, exc)
+
+        try:
+            profile = self.get_user_profile(username)
+            if profile and profile.get("updated_at"):
+                return {"date": profile["updated_at"], "type": "ProfileUpdate"}
+        except Exception as exc:
+            logger.debug("Failed profile activity lookup for @%s: %s", username, exc)
+
+        return None
+
     # -------------------------------------------------------------------------
     # Explicit Administrative Revocation (Requires Admin Approval)
     # -------------------------------------------------------------------------

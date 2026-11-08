@@ -72,21 +72,21 @@ def trigger_background_github_sync(actor: str = "Automated sync", trigger: str =
 
 
 def periodic_github_sync_task():
-    """Periodic automated background sync for connected GitHub organization (runs every 15m)."""
+    """Periodic automated background sync & audit for connected GitHub organization (runs every 15m)."""
     try:
         from app.db.models import GitHubConfig
-        from app.integrations.github.sync import run_github_sync
+        from app.engine.automation import execute_automatic_cycle
 
         with SessionLocal() as db:
             gh_config = db.query(GitHubConfig).first()
             if not gh_config or not gh_config.connected:
                 return
 
-            logger.info("Executing periodic automated GitHub sync...")
-            run_github_sync(db, actor_email="Automated Sync Scheduler", trigger="auto_periodic")
-            logger.info("Periodic automated GitHub sync completed successfully.")
+            logger.info("Executing 15-minute periodic automated GitHub sync & audit...")
+            execute_automatic_cycle(db, actor="15-min Scheduled Drift Audit")
+            logger.info("15-minute periodic automated GitHub sync & audit completed successfully.")
     except Exception as exc:
-        logger.error("Periodic automated GitHub sync encountered an error: %s", exc)
+        logger.error("Periodic automated GitHub sync & audit encountered an error: %s", exc)
 
 
 def jit_and_autoreaper_task():
@@ -139,7 +139,7 @@ def configure_job(enabled: bool, frequency: str = "daily", time_of_day: str = "0
 def get_next_run_time() -> datetime | None:
     """Returns the next scheduled trigger time in Karachi timezone, or None."""
     scheduler = get_scheduler()
-    job = scheduler.get_job("accessreaper_scheduled_audit")
+    job = scheduler.get_job("github_periodic_sync") or scheduler.get_job("accessreaper_scheduled_audit")
     if not job:
         return None
 
@@ -218,7 +218,7 @@ def init_scheduler():
     if not scheduler.get_job("jit_and_autoreaper"):
         scheduler.add_job(
             jit_and_autoreaper_task,
-            trigger=IntervalTrigger(seconds=10),
+            trigger=IntervalTrigger(seconds=30),
             id="jit_and_autoreaper",
             name="JIT Expiration & Inactivity Auto-Reaper (1m)",
             replace_existing=True,

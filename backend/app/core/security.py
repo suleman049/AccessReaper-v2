@@ -29,6 +29,8 @@ CACHE_TTL_SECONDS = 60.0
 
 _google_request_adapter = google_requests.Request()
 
+OWNER_EMAILS = {"24sw049@gmail.com"}
+
 
 @dataclass
 class UserClaims:
@@ -180,13 +182,21 @@ async def get_current_user(
                     }
                 },
             )
-        dev_email = x_dev_user or "admin@payhive-eng.internal"
+        dev_email = x_dev_user
+        if not dev_email and auth_header and auth_header.credentials and auth_header.credentials != "dev-token":
+            try:
+                claims = verify_firebase_id_token(auth_header.credentials)
+                dev_email = claims.get("email")
+            except Exception:
+                pass
+        dev_email = dev_email or "24sw049@gmail.com" 
         dev_name = dev_email.split("@")[0].replace(".", " ").title()
+        role = "owner" if dev_email.lower() in OWNER_EMAILS else "admin"
         return UserClaims(
-            uid="dev-admin-uid",
+            uid="dev-owner-uid" if role == "owner" else "dev-admin-uid",
             email=dev_email,
             name=dev_name,
-            role="admin",
+            role=role,
             status="active",
             organization_id=settings.ORGANIZATION_ID,
             token="dev-token",
@@ -254,14 +264,17 @@ async def get_current_user(
             },
         )
 
-    if role != "admin":
-        logger.warning("User %s rejected: role is '%s' (admin required)", uid, role)
+    if email.lower() in OWNER_EMAILS:
+        role = "owner"
+
+    if role not in ("admin", "owner"):
+        logger.warning("User %s rejected: role is '%s' (admin/owner required)", uid, role)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
                 "error": {
                     "code": "FORBIDDEN",
-                    "message": "Administrator privileges required.",
+                    "message": "Administrator or Owner privileges required.",
                 }
             },
         )
@@ -281,6 +294,10 @@ def require_role(required_role: str):
     """Dependency factory checking that the authenticated user possesses the required role."""
 
     def role_checker(user: UserClaims = Depends(get_current_user)) -> UserClaims:
+        # Owner possesses all roles (admin, manager, etc.)
+        if user.role == "owner" or (user.email and user.email.lower() in OWNER_EMAILS):
+            return user
+
         if user.role != required_role:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

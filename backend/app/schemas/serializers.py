@@ -98,7 +98,7 @@ def serialize_assignment(assignment: Assignment, ai_explanation: AIExplanation |
             admin_count=getattr(assignment, "_admin_count", None),
         ),
         access_level=assignment.access_level,
-        last_active_days=calculate_days_inactive(assignment.last_active_at),
+        last_active_days=calculate_days_inactive(assignment.last_active_at, getattr(assignment, "origin", None)),
         last_activity_text=assignment.last_active_text or "",
         finding_context=FindingContext(
             direct_admin_bypass=assignment.direct_admin_bypass,
@@ -109,6 +109,23 @@ def serialize_assignment(assignment: Assignment, ai_explanation: AIExplanation |
     )
     score_val = eval_res.score
     breakdown = [{"code": r.code, "name": r.name, "points": r.points, "reason": r.reason} for r in eval_res.fired_rules]
+
+    calculated_days = calculate_days_inactive(assignment.last_active_at, getattr(assignment, "origin", None))
+    display_last = assignment.last_active_text
+    if not display_last or display_last == "Not recorded":
+        if calculated_days is not None:
+            if calculated_days == 0:
+                display_last = "Today"
+            elif calculated_days == 1:
+                display_last = "1 day ago"
+            elif calculated_days >= 30:
+                display_last = f"{calculated_days} days ago (Dormant)"
+            else:
+                display_last = f"{calculated_days} days ago"
+        elif assignment.last_active_at:
+            display_last = "Recent"
+        else:
+            display_last = "Active"
 
     return PersonSchema(
         id=assignment.id,
@@ -121,7 +138,7 @@ def serialize_assignment(assignment: Assignment, ai_explanation: AIExplanation |
         source=assignment.resource.source,
         access=assignment.access_level,
         risk=assignment.current_risk,
-        last=assignment.last_active_text or "Not recorded",
+        last=display_last,
         lastActiveAt=format_iso_karachi(assignment.last_active_at),
         reason=assignment.reason,
         resolved=assignment.resolved,

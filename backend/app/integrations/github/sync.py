@@ -207,6 +207,7 @@ def run_github_sync(
             sync_run.repos_count = len(repos)
             outside_logins = {u["login"] for u in outside}
             seen_assignment_keys: set[tuple[str, str]] = set()  # (resource_id, login)
+            user_activity_cache: dict[str, Any] = {}
 
             for repo_data in repos:
                 repo_full_name = repo_data.get("full_name") or f"{org_name}/{repo_data['name']}"
@@ -272,43 +273,61 @@ def run_github_sync(
 
                     seen_assignment_keys.add((resource.id, login))
 
-                    # Look up activity for elevated access (Admin first, then Write)
+                    # Look up activity across commits and public events
                     last_active_at = None
                     last_active_text = "Not recorded"
-                    if access_level in ("Admin", "Write"):
-                        try:
+                    try:
+                        last_commit = None
+                        if access_level in ("Admin", "Write"):
                             last_commit = client.get_last_commit(org_name, repo_short_name, login)
-                            if last_commit:
+                            if last_commit and last_commit.get("commit", {}).get("author", {}).get("date"):
                                 commit_date_str = last_commit.get("commit", {}).get("author", {}).get("date")
-                                if commit_date_str:
-                                    last_active_at = datetime.fromisoformat(commit_date_str.replace("Z", "+00:00"))
-                                    days_ago = max(0, (now - last_active_at).days)
-                                    last_active_text = f"{days_ago} days ago"
+                                last_active_at = datetime.fromisoformat(commit_date_str.replace("Z", "+00:00"))
 
-                                # Auto-discover real email from git commit author if identity is unmatched
-                                commit_author_email = last_commit.get("commit", {}).get("author", {}).get("email")
-                                if (
-                                    commit_author_email
-                                    and "@" in commit_author_email
-                                    and not commit_author_email.endswith("noreply.github.com")
-                                    and (identity.email.endswith("@github.unmatched") or (id_map and id_map.email is None))
-                                ):
-                                    real_commit_email = commit_author_email.lower()
-                                    logger.info("Auto-discovered real commit author email for @%s: %s", login, real_commit_email)
-                                    identity.email = real_commit_email
-                                    if identity.team == "Unmatched":
-                                        identity.team = "Engineering"
-                                        identity.job_role = "Engineer"
-                                        identity.employment_status = "active"
-                                    id_map_entry = db.query(GitHubIdentityMap).filter(GitHubIdentityMap.login == login).first()
-                                    if id_map_entry:
-                                        id_map_entry.email = real_commit_email
-                                        id_map_entry.source = "auto_commit"
-                                    db.flush()
-                        except RequestCapExceededError:
-                            is_partial = True
-                        except Exception as e:
-                            logger.debug("Failed commit lookup for %s on %s: %s", login, repo_short_name, e)
+                        # Fallback to general user activity on GitHub
+                        if not last_active_at:
+                            if login not in user_activity_cache:
+                                user_activity_cache[login] = client.get_user_last_activity(login)
+                            act = user_activity_cache.get(login)
+                            if act and act.get("date"):
+                                last_active_at = datetime.fromisoformat(act["date"].replace("Z", "+00:00"))
+
+                        if last_active_at:
+                            days_ago = max(0, (now - last_active_at).days)
+                            if days_ago == 0:
+                                last_active_text = "Today"
+                            elif days_ago == 1:
+                                last_active_text = "1 day ago"
+                            elif days_ago >= 30:
+                                last_active_text = f"{days_ago} days ago (Dormant)"
+                            else:
+                                last_active_text = f"{days_ago} days ago"
+
+                        # Auto-discover real email from git commit author if identity is unmatched
+                        if last_commit:
+                            commit_author_email = last_commit.get("commit", {}).get("author", {}).get("email")
+                            if (
+                                commit_author_email
+                                and "@" in commit_author_email
+                                and not commit_author_email.endswith("noreply.github.com")
+                                and (identity.email.endswith("@github.unmatched") or (id_map and id_map.email is None))
+                            ):
+                                real_commit_email = commit_author_email.lower()
+                                logger.info("Auto-discovered real commit author email for @%s: %s", login, real_commit_email)
+                                identity.email = real_commit_email
+                                if identity.team == "Unmatched":
+                                    identity.team = "Engineering"
+                                    identity.job_role = "Engineer"
+                                    identity.employment_status = "active"
+                                id_map_entry = db.query(GitHubIdentityMap).filter(GitHubIdentityMap.login == login).first()
+                                if id_map_entry:
+                                    id_map_entry.email = real_commit_email
+                                    id_map_entry.source = "auto_commit"
+                                db.flush()
+                    except RequestCapExceededError:
+                        is_partial = True
+                    except Exception as e:
+                        logger.debug("Failed activity lookup for %s on %s: %s", login, repo_short_name, e)
 
                     # Update or insert assignment
                     existing = (

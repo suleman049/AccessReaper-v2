@@ -243,7 +243,9 @@ def evaluate_risk(
         or identity.team.lower() == "external"
         or "contractor" in identity.job_role.lower()
     )
-    if rules_enabled.get("contractorAdmin", True) and is_contractor and access_level == "Admin":
+    # If temporary/JIT contractor admin (e.g. project manager on fixed lease), do not flag as perpetual high-risk
+    is_temporary_lease = getattr(assignment_ctx, "is_temporary", False) if "assignment_ctx" in locals() else False
+    if rules_enabled.get("contractorAdmin", True) and is_contractor and access_level == "Admin" and not is_temporary_lease:
         pts = int(points_map.get("contractorAdmin", 50))
         score += pts
         fired_rules.append(
@@ -730,7 +732,7 @@ def calculate_security_health_score(assignments: list[Any], pending_count: int =
         if getattr(a, "privileged_inactive", False):
             dormant_count += 1
         else:
-            days = calculate_days_inactive(getattr(a, "last_active_at", None))
+            days = calculate_days_inactive(getattr(a, "last_active_at", None), getattr(a, "origin", None))
             if days is not None and days >= 80 and getattr(a, "access_level", "None") != "None":
                 dormant_count += 1
 

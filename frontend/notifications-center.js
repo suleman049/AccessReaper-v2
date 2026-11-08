@@ -14,8 +14,28 @@ const NotificationsCenter = {
   async init() {
     this.bindEvents();
     await this.fetchNotifications();
+    this.startPolling();
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this.stopPolling();
+      } else {
+        this.fetchNotifications();
+        this.startPolling();
+      }
+    });
+  },
+
+  startPolling() {
     if (!this.pollTimer) {
-      this.pollTimer = setInterval(() => this.fetchNotifications(), 3500);
+      this.pollTimer = setInterval(() => this.fetchNotifications(), 12000);
+    }
+  },
+
+  stopPolling() {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
     }
   },
 

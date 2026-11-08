@@ -34,6 +34,8 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
         try:
             cursor.execute("PRAGMA journal_mode=WAL;")
             cursor.execute("PRAGMA busy_timeout=30000;")
+            cursor.execute("PRAGMA synchronous=NORMAL;")
+            cursor.execute("PRAGMA cache_size=-10000;")
         except Exception:
             pass
         cursor.close()

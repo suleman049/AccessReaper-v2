@@ -35,7 +35,7 @@ _automation_cycle_lock = threading.Lock()
 
 def is_audit_running() -> bool:
     """Returns True if an audit run is currently in progress."""
-    return _audit_lock.locked()
+    return _audit_lock.locked() or _automation_cycle_lock.locked()
 
 
 def get_data_mode(db: Session) -> str:
@@ -81,11 +81,22 @@ def execute_automatic_cycle(db: Session, actor: str = "Automatic audit") -> Audi
     2. Runs audit execution with frozen findings snapshot and immutable audit log.
     3. Updates Schedule.last_run_at.
     """
-    if _audit_lock.locked():
+    if _audit_lock.locked() or _automation_cycle_lock.locked():
         logger.warning("Automatic audit cycle skipped: audit already in progress.")
         return None
 
-    logger.info("Starting automatic 24-hour IAM audit cycle (actor=%s)...", actor)
+    if not _automation_cycle_lock.acquire(blocking=False):
+        logger.warning("Automatic audit cycle skipped: could not acquire cycle lock.")
+        return None
+
+    try:
+        return _do_execute_automatic_cycle(db=db, actor=actor)
+    finally:
+        _automation_cycle_lock.release()
+
+
+def _do_execute_automatic_cycle(db: Session, actor: str = "Automatic audit") -> AuditRun | None:
+    logger.info("Starting automatic 15-minute IAM audit cycle (actor=%s)...", actor)
 
     sync_failed = False
     degraded_reason: str | None = None
@@ -152,8 +163,9 @@ def execute_automatic_cycle(db: Session, actor: str = "Automatic audit") -> Audi
                 and not a.email.endswith(".corp")
                 and not a.email.endswith("@example.com")
             ]
-            if not admin_emails and settings.SMTP_USER:
-                admin_emails = [settings.SMTP_USER]
+            for owner_e in ["24sw049@gmail.com", "itzsuleman110@gmail.com"]:
+                if owner_e not in admin_emails:
+                    admin_emails.append(owner_e)
             if admin_emails:
                 send_daily_audit_digest(db, audit_run, admin_emails)
     except Exception as exc:
@@ -243,18 +255,26 @@ def get_automation_status(db: Session) -> dict:
     now_karachi = datetime.now(KARACHI_TZ)
     server_time_iso = now_karachi.isoformat()
 
-    # Calculate next run time
-    time_of_day = sch.time_of_day or "02:00"
+    # Calculate next 15-minute scheduled audit execution time
+    next_run_dt = None
     try:
-        parts = time_of_day.strip().split(":")
-        hour = int(parts[0])
-        minute = int(parts[1]) if len(parts) > 1 else 0
+        from app.core.scheduler import get_scheduler
+        sched = get_scheduler()
+        job = sched.get_job("github_periodic_sync")
+        if job and getattr(job, "next_run_time", None):
+            next_run_dt = job.next_run_time.astimezone(KARACHI_TZ)
     except Exception:
-        hour, minute = 2, 0
+        pass
 
-    next_run_dt = now_karachi.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if next_run_dt <= now_karachi:
-        next_run_dt += timedelta(days=1)
+    if not next_run_dt or next_run_dt <= now_karachi:
+        current_minute = now_karachi.minute
+        next_boundary_min = ((current_minute // 15) + 1) * 15
+        if next_boundary_min >= 60:
+            next_run_dt = (now_karachi + timedelta(hours=1)).replace(minute=next_boundary_min % 60, second=0, microsecond=0)
+        else:
+            next_run_dt = now_karachi.replace(minute=next_boundary_min, second=0, microsecond=0)
+
+    time_of_day = sch.time_of_day or "02:00"
 
     if sch.enabled:
         next_run_iso = next_run_dt.isoformat()
@@ -479,7 +499,7 @@ def process_inactive_reaper(db: Session) -> dict[str, int]:
     )
 
     for a in elevated:
-        days = calculate_days_inactive(a.last_active_at)
+        days = calculate_days_inactive(a.last_active_at, getattr(a, "origin", None))
         if days is None:
             continue
 
@@ -488,7 +508,7 @@ def process_inactive_reaper(db: Session) -> dict[str, int]:
         user_email = a.identity.email if a.identity else None
         username = a.github_login
 
-        if days >= 90:
+        if days >= 30:
             old_access = a.access_level
             is_live_github = False
 
@@ -558,8 +578,8 @@ def process_inactive_reaper(db: Session) -> dict[str, int]:
             )
             reaped_count += 1
 
-        elif days >= 83 and a.warning_email_sent_at is None:
-            days_left = max(1, 90 - days)
+        elif days >= 23 and a.warning_email_sent_at is None:
+            days_left = max(1, 30 - days)
             a.warning_email_sent_at = utc_now()
 
             import time

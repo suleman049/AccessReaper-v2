@@ -3,7 +3,7 @@ const FirebaseIdentity = {
   phase: 'loading', user: null, profile: null, error: '', auth: null, db: null,
   sdk: null, initializing: null, profileLoad: null, authStop: null, profileStop: null,
   epoch: 0, signupName: '',
-  get authorized() { return this.phase === 'authorized' && this.user && this.profile?.role === 'admin' && this.profile?.status === 'active' && ['acme', 'payhive-eng'].includes(this.profile?.organizationId); },
+  get authorized() { return this.phase === 'authorized' && this.user && ['admin', 'owner'].includes(this.profile?.role) && this.profile?.status === 'active' && ['acme', 'payhive-eng'].includes(this.profile?.organizationId); },
   notify() { document.dispatchEvent(new Event('identity-changed')); },
   message(error) {
     const messages = {
@@ -87,7 +87,7 @@ const FirebaseIdentity = {
   },
   applyProfile(profile) {
     this.profile = profile;
-    this.phase = profile?.uid === this.user?.uid && profile?.role === 'admin' && profile?.status === 'active' && ['acme', 'payhive-eng'].includes(profile?.organizationId) ? 'authorized' : 'pending';
+    this.phase = profile?.uid === this.user?.uid && ['admin', 'owner'].includes(profile?.role) && profile?.status === 'active' && ['acme', 'payhive-eng'].includes(profile?.organizationId) ? 'authorized' : 'pending';
     this.error = ''; this.notify();
   },
   async acceptUser(user) {

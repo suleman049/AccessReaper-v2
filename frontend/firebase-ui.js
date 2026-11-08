@@ -109,7 +109,7 @@ document.addEventListener('click',async e=>{
   if(button.matches('[data-admin-login]')){
     e.preventDefault();if(FirebaseUI.busy||FirebaseIdentity.phase==='checking-profile')return;
     const email=document.querySelector('#email'),password=document.querySelector('#password');
-    if(email&&password){email.value='admin@accessreaper.example';email.dispatchEvent(new Event('input',{bubbles:true}));password.focus();}
+    if(email&&password){email.value='itzsuleman110@gmail.com';password.value='Password123!';email.dispatchEvent(new Event('input',{bubbles:true}));password.focus();}
   }
   if(button.matches('[data-auth-retry],[data-check-access]')){e.preventDefault();if(FirebaseUI.busy)return;FirebaseUI.busy=true;button.disabled=true;try{await FirebaseIdentity.refresh();}finally{FirebaseUI.busy=false;FirebaseUI.syncForm();}}
 });

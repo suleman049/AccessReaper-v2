@@ -12,6 +12,21 @@ const safe=(s)=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>'
 
 const statusLabel=value=>value==='Declined'?'Rejected':String(value??'');
 
+function isPersonDormant(p) {
+  if (p.lastActiveAt) {
+    const days = Math.floor((Date.now() - new Date(p.lastActiveAt).getTime()) / 86400000);
+    return days >= 30;
+  }
+  if (typeof p.lastActiveDays === 'number') {
+    return p.lastActiveDays >= 30;
+  }
+  const lastText = (p.last || '').toLowerCase();
+  if (lastText.includes('not recorded') || lastText.includes('no recorded') || lastText.includes('dormant')) {
+    return true;
+  }
+  return false;
+}
+
 const initials=s=>String(s).split(' ').map(v=>v[0]).slice(0,2).join('');
 
 const badge=value=>`<span class="status-badge ${['pending','approved','declined'].includes(String(value).toLowerCase())?String(value).toLowerCase():'reviewed'}">${safe(statusLabel(value))}</span>`;
@@ -27,7 +42,7 @@ function pageHeading(title,sub,actions=''){return `<div class="page-heading"><di
 function renderActivityTable(limit=people.length,rows=people,showActions=false){const id=showActions?'audit-assignment-table':'overview-assignment-table';return `<div class="assignment-table-region"><p class="table-scroll-hint" id="${id}-hint">${uiIcon('chevronRight')} Scroll sideways for more columns. On phones, identity and review controls stay visible.</p><div class="table-responsive assignment-table-scroll" tabindex="0" role="region" aria-label="Access assignments, horizontally scrollable" aria-describedby="${id}-hint"><table class="table"><thead><tr><th>IDENTITY</th><th>RESOURCE / SOURCE</th><th>ACCESS</th><th>RISK</th><th>LAST ACTIVE</th>${showActions?'<th>RECOMMENDED ACTION</th>':''}<th><span class="visually-hidden">Details</span></th></tr></thead><tbody>${rows.slice(0,limit).map(p=>{
   const empStatus = p.employmentStatus || p.employment_status || '';
   const isContractor = (p.team==='External'||(p.role&&p.role.toLowerCase().includes('contractor'))||(p.job_role&&p.job_role.toLowerCase().includes('contractor'))||empStatus==='contractor'||(p.reason&&p.reason.toLowerCase().includes('contractor')));
-  const isInactive = ((p.reason&&p.reason.toLowerCase().includes('inactive'))||(p.last&&p.last.toLowerCase().includes('not recorded')));
+  const isInactive = isPersonDormant(p);
 
   let jitBadge = '';
   if(p.isTemporary){
@@ -72,7 +87,7 @@ function auditPage(){
     const isContractor = p.team === 'External' || (p.role && p.role.toLowerCase().includes('contractor')) || (p.job_role && p.job_role.toLowerCase().includes('contractor')) || empStatus === 'contractor' || (p.reason && p.reason.toLowerCase().includes('contractor'));
     return isExpiringLease || isContractor;
   }).length;
-  const countInactive = people.filter(p => (p.reason && (p.reason.toLowerCase().includes('inactive') || p.reason.toLowerCase().includes('dormant'))) || (p.last && p.last.toLowerCase().includes('not recorded')) || (p.lastActiveAt && (Date.now() - new Date(p.lastActiveAt).getTime() > 86400000 * 30))).length;
+  const countInactive = people.filter(p => isPersonDormant(p)).length;
   const countRemediated = people.filter(p => p.resolved).length;
 
   const filtered=filteredPeople();
@@ -157,7 +172,7 @@ function approvalsPage(){
 
   const filtered=approvals.filter(a=>(state.approvalFilter==='All requests'||a.status===state.approvalFilter)&&(`${a.person} ${a.repo} ${a.id} ${a.reason} ${a.githubLogin||''}`).toLowerCase().includes(state.approvalQuery.toLowerCase()));
 
-  return `<div class="approvals-workbench">${pageHeading('Approvals','Review and manage repository access requests for payhive-eng.',`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><button class="btn btn-outline" id="btn-share-request-link" title="Copy public link to share with friends or collaborators" style="font-size:12.5px;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;">${uiIcon('link', 13)} Share Request Link</button><button class="btn btn-primary" id="btn-open-onboard-modal" style="font-size:12.5px;padding:6px 14px;display:inline-flex;align-items:center;gap:6px;background:#16a34a;border-color:#16a34a;font-weight:700;">${uiIcon('people', 14)} + Onboard Employee</button><button class="btn btn-outline" id="btn-open-request-modal" style="font-size:12.5px;padding:6px 12px;">+ Request Access</button></div>`)}
+  return `<div class="approvals-workbench">${pageHeading('Approvals','Review and manage repository access requests for payhive-eng.',`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><button class="btn btn-outline" id="btn-share-request-link" title="Copy public link to share with friends or collaborators" style="font-size:12.5px;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;">${uiIcon('link', 13)} Share Request Link</button><button class="btn btn-primary" id="btn-open-request-modal" style="font-size:12.5px;padding:6px 14px;display:inline-flex;align-items:center;gap:6px;background:#16a34a;border-color:#16a34a;font-weight:700;">${uiIcon('people', 14)} + Onboard & Request Access</button></div>`)}
 
   <section class="card request-metrics" aria-label="Request totals">
 
@@ -342,8 +357,7 @@ function filteredPeople(){
       if(!isExpiringLease&&!isContractor)return false;
     }
     if(state.auditSegment==='inactive'){
-      const isInactive=(p.reason&&(p.reason.toLowerCase().includes('inactive')||p.reason.toLowerCase().includes('dormant')))||(p.last&&p.last.toLowerCase().includes('not recorded'))||(p.lastActiveAt&&(Date.now()-new Date(p.lastActiveAt).getTime()>86400000*30));
-      if(!isInactive)return false;
+      if(!isPersonDormant(p))return false;
     }
     if(state.auditSegment==='remediated'&&!p.resolved)return false;
     return (state.auditRisk==='All risks'||(!p.resolved&&p.risk===state.auditRisk))&&(state.auditAccess==='All access levels'||p.access===state.auditAccess)&&(state.auditSource==='All sources'||p.source===state.auditSource)&&(state.auditUser==='All users'||p.email===state.auditUser)&&(state.auditRepo==='All resources'||p.repo===state.auditRepo)&&(state.auditAction==='All actions'||Governance.actionLabel(p)===state.auditAction)&&`${p.name} ${p.email} ${p.repo} ${p.team} ${p.reason} ${p.source}`.toLowerCase().includes(state.auditQuery.toLowerCase());
@@ -617,7 +631,7 @@ function exportCsv(kind){
 
 let confirmAction=null;
 
-function openDecision(title,description,summary,button,action,requireNote=true){document.querySelector('#review-modal').classList.remove('is-audit-report');document.querySelector('#review-modal-body').innerHTML=`<div class="d-flex justify-content-between mb-3"><span class="eyebrow mb-0">${requireNote?'GOVERNANCE DECISION':'REFRESH WORKSPACE'}</span><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><h2 id="decision-title">${safe(title)}</h2><p>${safe(description)}</p><div class="review-detail-box"><strong>${safe(summary)}</strong><span style="color:#16a34a;font-weight:600;">[Live Enforcement] Executed live on payhive-eng GitHub organization with automated audit logging.</span></div>${requireNote?'<label class="field-label" for="review-note">Decision comment <span>(required)</span></label><textarea id="review-note" class="form-control review-note" required maxlength="500" aria-describedby="decision-note-help decision-note-error" placeholder="Explain the business reason for your decision…"></textarea><small id="decision-note-help">This comment is saved with the decision in audit history.</small><p id="decision-note-error" class="decision-error" role="alert"></p>':'<ul class="reset-effects"><li>Refresh all assignments directly from GitHub and live database.</li><li>Synchronize latest security findings and approval state.</li><li>Keep your light/dark theme preference.</li></ul><p class="decision-error">Locally recorded changes cannot be recovered after reset.</p>'}<div class="review-modal-actions"><button class="btn btn-outline" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="confirm-review">${safe(button)}</button></div>`;confirmAction=action;document.querySelector('#review-modal').dataset.requireNote=String(requireNote);document.querySelector('#review-modal').setAttribute('aria-labelledby','decision-title');bootstrap.Modal.getOrCreateInstance(document.querySelector('#review-modal')).show();}
+function openDecision(title,description,summary,button,action,requireNote=true){document.querySelector('#review-modal').classList.remove('is-audit-report');document.querySelector('#review-modal-body').innerHTML=`<div class="d-flex justify-content-between mb-3"><span class="eyebrow mb-0">${requireNote?'GOVERNANCE DECISION':'REFRESH WORKSPACE'}</span><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><h2 id="decision-title">${safe(title)}</h2><p>${description}</p><div class="review-detail-box"><strong>${safe(summary)}</strong><span style="color:#16a34a;font-weight:600;">[Live Enforcement] Executed live on payhive-eng GitHub organization with automated audit logging.</span></div>${requireNote?'<label class="field-label" for="review-note">Decision comment <span>(required)</span></label><textarea id="review-note" class="form-control review-note" required maxlength="500" aria-describedby="decision-note-help decision-note-error" placeholder="Explain the business reason for your decision…"></textarea><small id="decision-note-help">This comment is saved with the decision in audit history.</small><p id="decision-note-error" class="decision-error" role="alert"></p>':'<ul class="reset-effects"><li>Refresh all assignments directly from GitHub and live database.</li><li>Synchronize latest security findings and approval state.</li><li>Keep your light/dark theme preference.</li></ul><p class="decision-error">Locally recorded changes cannot be recovered after reset.</p>'}<div class="review-modal-actions"><button class="btn btn-outline" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="confirm-review">${safe(button)}</button></div>`;confirmAction=action;document.querySelector('#review-modal').dataset.requireNote=String(requireNote);document.querySelector('#review-modal').setAttribute('aria-labelledby','decision-title');bootstrap.Modal.getOrCreateInstance(document.querySelector('#review-modal')).show();}
 
 function openReview(id,action){Governance.approve(id,action);}
 
@@ -629,7 +643,11 @@ function searchWorkspace(query){SearchPalette.query(query);}
 
 document.addEventListener('input',e=>{const map={'audit-search':'auditQuery','approval-search':'approvalQuery','history-search':'historyQuery'};if(map[e.target.id])updateInput(map[e.target.id],e.target.value,e.target.id);if(e.target.id==='review-note'){e.target.removeAttribute('aria-invalid');document.querySelector('#decision-note-error').textContent='';}if(e.target.id==='global-search')searchWorkspace(e.target.value);});
 
-document.addEventListener('change',e=>{const map={'risk-filter':'auditRisk','access-filter':'auditAccess','source-filter':'auditSource','user-filter':'auditUser','repo-filter':'auditRepo','action-filter':'auditAction','approval-filter':'approvalFilter','history-filter':'historyAction','history-range':'historyRange'};if(map[e.target.id]){state[map[e.target.id]]=e.target.value;state.auditPage=1;state.historyPage=1;render();}});
+document.addEventListener('change',e=>{
+  if (e.target.id === 'req-duration-select') {
+    const customBox = document.getElementById('custom-duration-container');
+    if (customBox) customBox.style.display = e.target.value === 'custom' ? 'flex' : 'none';
+  }const map={'risk-filter':'auditRisk','access-filter':'auditAccess','source-filter':'auditSource','user-filter':'auditUser','repo-filter':'auditRepo','action-filter':'auditAction','approval-filter':'approvalFilter','history-filter':'historyAction','history-range':'historyRange'};if(map[e.target.id]){state[map[e.target.id]]=e.target.value;state.auditPage=1;state.historyPage=1;render();}});
 
 document.addEventListener('click',e=>{
 
@@ -722,60 +740,22 @@ document.addEventListener('click',e=>{
    return;
  }
 
- if(b.id==='btn-open-onboard-modal'){
-   const tabNew = document.querySelector('#tab-new-user');
-   const tabExist = document.querySelector('#tab-existing-user');
-   const secNew = document.querySelector('#section-new-user');
-   const secExist = document.querySelector('#section-existing-user');
-   if(tabNew && tabExist && secNew && secExist){
-     tabNew.classList.add('active');
-     tabNew.style.background = '#ff4d1f';
-     tabNew.style.color = '#fff';
-     tabExist.classList.remove('active');
-     tabExist.style.background = 'transparent';
-     tabExist.style.color = 'var(--text, #334155)';
-     secNew.style.display = 'block';
-     secExist.style.display = 'none';
-   }
-   const repoSelect = document.querySelector('#req-repo-select');
-   if(repoSelect){
-     const repos = Array.from(new Set(people.map(p => p.repo).filter(Boolean))).sort();
-     repoSelect.innerHTML = repos.map(r => `<option value="${safe(r)}">${safe(r)}</option>`).join('');
-   }
-   bootstrap.Modal.getOrCreateInstance(document.querySelector('#request-modal')).show();
-   setTimeout(() => { document.querySelector('#req-github-input')?.focus(); }, 200);
-   return;
- }
+  if(b.id==='btn-open-request-modal' || b.id==='btn-open-onboard-modal'){
+    const userSelect = document.querySelector('#req-user-select');
+    const repoSelect = document.querySelector('#req-repo-select');
+    if(userSelect && repoSelect){
+      const usersMap = new Map();
+      people.forEach(p => {
+        if(p.email && !p.email.includes('@github.unmatched')) {
+          usersMap.set(p.email, `${p.name} (${p.email})`);
+        }
+      });
+      userSelect.innerHTML = Array.from(usersMap.entries()).map(([email, label]) => `<option value="${safe(email)}">${safe(label)}</option>`).join('');
+      const repos = Array.from(new Set(people.map(p => p.repo).filter(Boolean))).sort();
+      repoSelect.innerHTML = repos.map(r => `<option value="${safe(r)}">${safe(r)}</option>`).join('');
+    }
 
- if(b.id==='btn-open-request-modal'){
-
-   const userSelect = document.querySelector('#req-user-select');
-
-   const repoSelect = document.querySelector('#req-repo-select');
-
-   if(userSelect && repoSelect){
-
-     const usersMap = new Map();
-
-     people.forEach(p => {
-
-       if(p.email && !p.email.includes('@github.unmatched')) {
-
-         usersMap.set(p.email, `${p.name} (${p.email})`);
-
-       }
-
-     });
-
-     userSelect.innerHTML = Array.from(usersMap.entries()).map(([email, label]) => `<option value="${safe(email)}">${safe(label)}</option>`).join('');
-
-     const repos = Array.from(new Set(people.map(p => p.repo).filter(Boolean))).sort();
-
-     repoSelect.innerHTML = repos.map(r => `<option value="${safe(r)}">${safe(r)}</option>`).join('');
-
-   }
-
-       const detectedWrapper = document.querySelector('#req-detected-wrapper');
+    const detectedWrapper = document.querySelector('#req-detected-wrapper');
     const detectedSelect = document.querySelector('#req-detected-select');
     const unmapped = window.unmatchedGitHubAccounts || (window.GitHubSettings && window.GitHubSettings.unmatched) || [];
     if(detectedWrapper && detectedSelect){
@@ -789,10 +769,10 @@ document.addEventListener('click',e=>{
     }
 
     bootstrap.Modal.getOrCreateInstance(document.querySelector('#request-modal')).show();
+    return;
+  }
 
- }
-
- if(b.matches('[data-search-page],[data-search-history]')){bootstrap.Modal.getInstance(document.querySelector('#search-modal')).hide();if(b.dataset.searchHistory){state.historyQuery=b.dataset.searchHistory;state.historyPage=1;location.hash='history';render();}else location.hash=b.dataset.searchPage;}
+  if(b.matches('[data-search-page],[data-search-history]')){bootstrap.Modal.getInstance(document.querySelector('#search-modal')).hide();if(b.dataset.searchHistory){state.historyQuery=b.dataset.searchHistory;state.historyPage=1;location.hash='history';render();}else location.hash=b.dataset.searchPage;}
 
  if(b.id==='search-open'){document.querySelector('#toast-container').replaceChildren();bootstrap.Modal.getOrCreateInstance(document.querySelector('#search-modal')).show();searchWorkspace(document.querySelector('#global-search').value);}
 
@@ -816,9 +796,20 @@ document.addEventListener('submit',async e=>{
 
     const access_level = document.querySelector('#req-access-select')?.value;
 
-    const duration_val = parseFloat(document.querySelector('#req-duration-select')?.value || '0');
-
-    const duration_hours = duration_val > 0 ? duration_val : null;
+    const durSelect = document.querySelector('#req-duration-select');
+    let duration_hours = null;
+    if (durSelect && durSelect.value === 'custom') {
+      const val = parseFloat(document.querySelector('#custom-duration-val')?.value || '0');
+      const unit = document.querySelector('#custom-duration-unit')?.value || 'days';
+      if (val > 0) {
+        if (unit === 'hours') duration_hours = val;
+        else if (unit === 'days') duration_hours = val * 24;
+        else if (unit === 'months') duration_hours = val * 24 * 30;
+      }
+    } else {
+      const duration_val = parseFloat(durSelect?.value || '0');
+      duration_hours = duration_val > 0 ? duration_val : null;
+    }
 
     const business_reason = document.querySelector('#req-reason-input')?.value.trim();
 
@@ -873,6 +864,15 @@ document.addEventListener('submit',async e=>{
     }
 
 
+
+    // Separation of Duties check for self-onboarding:
+    const loggedInEmail = (window.FirebaseIdentity?.user?.email || '').trim().toLowerCase();
+    const targetEmail = (payload.email || '').trim().toLowerCase();
+    const targetGithub = (payload.github_login || '').trim().toLowerCase();
+    if (loggedInEmail && (loggedInEmail === targetEmail || (targetGithub && loggedInEmail.split('@')[0] === targetGithub))) {
+      showToast('Separation of Duties violation: administrators cannot directly onboard or grant repository permissions to themselves. Another administrator must review your request.');
+      return;
+    }
 
     const submitBtn = document.querySelector('#req-submit-btn');
 

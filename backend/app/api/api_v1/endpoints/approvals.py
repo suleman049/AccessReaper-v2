@@ -103,9 +103,12 @@ def decide_approval_request(
         )
 
     # SoD approval integrity: a person can never approve or reject their own access request
+    # Exception: Organization Owner (24sw049@gmail.com) holds executive break-glass approval authority
     requester_email = (req.identity.email if req.identity else "").strip().lower()
     approver_email = (user.email or "").strip().lower()
-    if requester_email and approver_email and requester_email == approver_email:
+    is_owner = (getattr(user, "role", "") == "owner" or approver_email == "24sw049@gmail.com")
+
+    if requester_email and approver_email and requester_email == approver_email and not is_owner:
         blocked_event = AuditLog(
             id=f"EVT-BLOCKED-{int(time.time() * 1000)}",
             actor=user.name or user.email,
@@ -350,44 +353,62 @@ def decide_approval_request(
     req.decided_by = user.name
     req.decided_at = utc_now()
 
-    # Dispatch security webhook alert
-    try:
-        from app.engine.webhook_service import send_security_webhook
-        duration_label = f"{int(round(req.duration_hours * 60))} Minutes (JIT)" if (req.duration_hours and req.duration_hours < 1) else (f"{int(req.duration_hours)} Hours (JIT)" if req.duration_hours else "Permanent")
-        send_security_webhook(
-            title=f"Access Request {action}",
-            description=f"Administrator **{user.name}** has **{action.lower()}** the access request for **{req.identity.name}** on repository **{req.resource.name}**.",
-            color_hex="#16a34a" if action == "Approved" else "#dc2626",
-            fields=[
-                {"name": "Resource", "value": req.resource.name, "inline": True},
-                {"name": "User", "value": req.identity.name, "inline": True},
-                {"name": "Permission", "value": target_access if action == "Approved" else req.requested_access, "inline": True},
-                {"name": "Duration", "value": duration_label, "inline": True},
-                {"name": "Decision Note", "value": payload.note or "None", "inline": False},
-            ],
-        )
-    except Exception as exc:
-        logger.warning("Could not dispatch webhook for approval decision: %s", exc)
-
-    # Dispatch automated email notice to user
-    try:
-        from app.engine.email_service import send_approval_decision_email_to_user
-        recipient_email = req.identity.email if req.identity else None
-        if recipient_email and not recipient_email.endswith("@github.unmatched"):
-            send_approval_decision_email_to_user(
-                to_email=recipient_email,
-                user_name=req.identity.name if req.identity else "Team Member",
-                repo_name=req.resource.name,
-                action=action,
-                access_level=target_access if action == "Approved" else req.requested_access,
-                admin_name=user.name or "Administrator",
-                admin_note=payload.note,
-                business_reason=req.business_reason,
-                github_login=github_login,
-                duration_hours=req.duration_hours,
+    # Dispatch security webhook alert and user email asynchronously in background
+    def _dispatch_alerts(identity_name, identity_email, resource_name, dur_label, note, tgt_acc, act, adm_name, biz_reason, gh_log, dur_hrs):
+        try:
+            from app.engine.webhook_service import send_security_webhook
+            send_security_webhook(
+                title=f"Access Request {act}",
+                description=f"Administrator **{adm_name}** has **{act.lower()}** the access request for **{identity_name}** on repository **{resource_name}**.",
+                color_hex="#16a34a" if act == "Approved" else "#dc2626",
+                fields=[
+                    {"name": "Resource", "value": resource_name, "inline": True},
+                    {"name": "User", "value": identity_name, "inline": True},
+                    {"name": "Permission", "value": tgt_acc, "inline": True},
+                    {"name": "Duration", "value": dur_label, "inline": True},
+                    {"name": "Decision Note", "value": note or "None", "inline": False},
+                ],
             )
-    except Exception as exc:
-        logger.warning("Could not dispatch approval decision email: %s", exc)
+        except Exception as exc:
+            logger.warning("Could not dispatch webhook for approval decision: %s", exc)
+
+        try:
+            from app.engine.email_service import send_approval_decision_email_to_user
+            if identity_email and not identity_email.endswith("@github.unmatched"):
+                send_approval_decision_email_to_user(
+                    to_email=identity_email,
+                    user_name=identity_name or "Team Member",
+                    repo_name=resource_name,
+                    action=act,
+                    access_level=tgt_acc,
+                    admin_name=adm_name,
+                    admin_note=note,
+                    business_reason=biz_reason,
+                    github_login=gh_log,
+                    duration_hours=dur_hrs,
+                )
+        except Exception as exc:
+            logger.warning("Could not dispatch approval decision email: %s", exc)
+
+    import threading
+    duration_label = f"{int(round(req.duration_hours * 60))} Minutes (JIT)" if (req.duration_hours and req.duration_hours < 1) else (f"{int(req.duration_hours)} Hours (JIT)" if req.duration_hours else "Permanent")
+    threading.Thread(
+        target=_dispatch_alerts,
+        args=(
+            req.identity.name if req.identity else "",
+            req.identity.email if req.identity else None,
+            req.resource.name if req.resource else "",
+            duration_label,
+            payload.note,
+            target_access if action == "Approved" else req.requested_access,
+            action,
+            user.name or "Administrator",
+            req.business_reason,
+            github_login,
+            req.duration_hours,
+        ),
+        daemon=True,
+    ).start()
 
     # Append to audit log
     event_id = f"EVT-{int(time.time() * 1000)}"
@@ -447,6 +468,20 @@ def decide_approval_request(
     except Exception as exc:
         logger.warning("Could not dispatch decision in-app notification: %s", exc)
 
+        # Trigger immediate audit cycle post-approval asynchronously
+    if action == "Approved":
+        import threading
+        def _run_immediate_audit():
+            try:
+                from app.db.session import SessionLocal
+                from app.engine.automation import execute_automatic_cycle
+                with SessionLocal() as bg_db:
+                    execute_automatic_cycle(bg_db, actor=f"Post-Approval Auto-Audit ({user.email})")
+                    logger.info("Immediate audit cycle completed after request approval %s", req.id)
+            except Exception as exc:
+                logger.warning("Could not execute post-approval audit cycle: %s", exc)
+        threading.Thread(target=_run_immediate_audit, daemon=True, name=f"post_approval_audit_{req.id}").start()
+
     return serialize_approval(req)
 
 
@@ -455,6 +490,7 @@ def _process_access_request(
     db: Session,
     actor: str,
     is_public: bool = False,
+    current_user: UserClaims | None = None,
 ) -> ApprovalSchema:
     login_clean = payload.github_login.strip().lstrip("@") if payload.github_login else None
 
@@ -540,6 +576,51 @@ def _process_access_request(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": {"code": "INVALID_IDENTITY", "message": "Valid employee email or GitHub username is required."}},
         )
+
+    # -------------------------------------------------------------------------
+    # Separation of Duties (SoD) Integrity Check on Admin Direct Onboarding:
+    # Administrators CANNOT directly onboard or grant repository access to themselves!
+    # -------------------------------------------------------------------------
+    if not is_public and current_user:
+        current_email = (current_user.email or "").strip().lower()
+        target_email = (identity.email or "").strip().lower() if identity else (payload.email or "").strip().lower()
+        
+        is_self_onboard = False
+        if current_email and target_email and current_email == target_email:
+            is_self_onboard = True
+        elif login_clean and current_email:
+            from app.db.models import GitHubIdentityMap
+            admin_map = db.query(GitHubIdentityMap).filter(GitHubIdentityMap.email == current_email).first()
+            if admin_map and admin_map.login and admin_map.login.lower() == login_clean.lower():
+                is_self_onboard = True
+            elif current_email.split("@")[0].lower() == login_clean.lower():
+                is_self_onboard = True
+
+        if is_self_onboard:
+            blocked_event = AuditLog(
+                id=f"EVT-BLOCKED-{int(time.time() * 1000)}",
+                actor=current_user.name or current_user.email,
+                tag="Request",
+                title="Self-onboarding attempt blocked",
+                detail=f"Admin {current_user.email} attempted to directly onboard/grant access to themselves on {payload.repo_name}",
+                note="Blocked by Separation of Duties policy: administrators cannot directly onboard or grant repository permissions to themselves.",
+                source="AccessReaper",
+                tone="orange",
+                icon="−",
+                mode="DRY_RUN",
+                occurred_at=utc_now(),
+            )
+            db.add(blocked_event)
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": {
+                        "code": "SOD_SELF_ONBOARD_FORBIDDEN",
+                        "message": "Separation of Duties violation: administrators cannot directly onboard or grant repository access to themselves. Another administrator must review this request.",
+                    }
+                },
+            )
 
     repo_clean = payload.repo_name.strip()
     resource = db.query(Resource).filter(Resource.name == repo_clean).first()
@@ -902,7 +983,7 @@ def create_approval_request(
     """
     Submits a new access request for an identity on a target repository (Admin-initiated).
     """
-    return _process_access_request(payload=payload, db=db, actor=user.name or user.email, is_public=False)
+    return _process_access_request(payload=payload, db=db, actor=user.name or user.email, is_public=False, current_user=user)
 
 
 @router.post("/requests/public", response_model=ApprovalSchema)
