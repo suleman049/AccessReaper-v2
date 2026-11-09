@@ -291,17 +291,37 @@ def remediate_finding(
             },
         )
 
-    # Check if finding is open (not resolved and not low risk)
-    if assignment.resolved or assignment.current_risk == "Low":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": {
-                    "code": "ALREADY_DECIDED",
-                    "message": "Finding has already been reviewed or is healthy.",
-                }
-            },
-        )
+    # Check target access / action
+    req_target = payload.target_access
+    if payload.action == "revoke":
+        req_target = "None"
+
+    is_revocation = (req_target == "None" or payload.action == "revoke")
+
+    # If revoking, allow any assignment that still holds permissions (> None), even if previously remediated/resolved
+    if is_revocation:
+        if assignment.access_level == "None":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": {
+                        "code": "ALREADY_REVOKED",
+                        "message": "This assignment's access is already completely revoked (None).",
+                    }
+                },
+            )
+    else:
+        # For non-revocation changes, ensure finding is open and not already decided
+        if assignment.resolved or assignment.current_risk == "Low":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": {
+                        "code": "ALREADY_DECIDED",
+                        "message": "Finding has already been reviewed or is healthy.",
+                    }
+                },
+            )
 
     eval_res = evaluate_risk(
         identity=IdentityContext(
