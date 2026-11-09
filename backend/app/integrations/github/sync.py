@@ -57,6 +57,15 @@ from app.schemas.serializers import serialize_assignment
 logger = logging.getLogger("accessreaper.github.sync")
 
 
+
+def _normalize_utc(dt: datetime | None) -> datetime | None:
+    """Guarantees a datetime is comparable against UTC-aware datetimes."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
 def _get_next_assignment_id(db: Session) -> str:
     """Finds the highest numeric FND-XXXX id and increments it."""
     assignments = db.query(Assignment.id).all()
@@ -293,7 +302,7 @@ def run_github_sync(
                                 last_active_at = datetime.fromisoformat(act["date"].replace("Z", "+00:00"))
 
                         if last_active_at:
-                            days_ago = max(0, (now - last_active_at).days)
+                            days_ago = max(0, (now - _normalize_utc(last_active_at)).days)
                             if days_ago == 0:
                                 last_active_text = "Today"
                             elif days_ago == 1:
@@ -351,7 +360,7 @@ def run_github_sync(
                         existing.external_status = "active"
                         # If an old temporary lease already reached its expiration timestamp, clear is_temporary
                         if getattr(existing, "is_temporary", False) and getattr(existing, "expires_at", None):
-                            if existing.expires_at <= now:
+                            if _normalize_utc(existing.expires_at) <= now:
                                 existing.is_temporary = False
                                 existing.expires_at = None
                         sync_run.assignments_updated += 1
