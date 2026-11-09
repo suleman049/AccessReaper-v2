@@ -106,9 +106,9 @@ def execute_audit_run(
             audit_source_label = "GitHub"
         else:
             query = db.query(Assignment).filter(Assignment.origin == "sample")
-            scope = ["GitHub", "Firestore"]
+            scope = ["GitHub"]
             is_sample = True
-            audit_source_label = "GitHub + Firestore"
+            audit_source_label = "GitHub"
 
         assignments = (
             query.options(

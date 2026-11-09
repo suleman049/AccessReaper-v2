@@ -267,7 +267,10 @@ def serialize_audit_run(run: AuditRun, ai_summary: AIExplanation | None = None) 
             resources=s.get("resources", 0),
         )
         for s in (run.sources or [])
+        if s.get("source") != "Firestore"
     ]
+    if not sources:
+        sources = [SourceBreakdown(source="GitHub", assignments=run.assignments or 0, resources=len(set(run.resources or [])) or 1)]
     summary_obj = ai_summary or getattr(run, "_ai_summary", None)
     serialized_ai = serialize_ai_explanation(summary_obj)
 
@@ -276,7 +279,7 @@ def serialize_audit_run(run: AuditRun, ai_summary: AIExplanation | None = None) 
         completedAt=format_iso_karachi(run.completed_at),
         status=run.status,
         actor=run.actor,
-        scope=run.scope or ["GitHub", "Firestore"],
+        scope=[s for s in (run.scope or ["GitHub"]) if s != "Firestore"] or ["GitHub"],
         assignments=run.assignments,
         identities=run.identities,
         high=run.high,

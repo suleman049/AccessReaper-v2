@@ -20,7 +20,7 @@ _pseudonymize = pseudonymize
 
 
 def generate_fallback_executive_summary(run: AuditRun) -> str:
-    sources_text = " and ".join(s.get("source", "") for s in (run.sources or [])) or "GitHub and Firestore"
+    sources_text = " and ".join(s.get("source", "") for s in (run.sources or []) if s.get("source") != "Firestore") or "GitHub"
     info = {
         "assignments": run.assignments,
         "identities": run.identities,

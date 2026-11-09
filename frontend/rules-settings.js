@@ -271,14 +271,7 @@ const RulesSettings = {
               <input type="number" id="rule-pts-contractor" class="form-control" min="0" max="100" value="${pts.contractorAdmin ?? 50}">
               <small>External contractor with administrator rights (default: 50)</small>
             </div>
-            <div class="rule-input-group">
-              <label for="rule-pts-firestore">
-                <span>Firestore admin beyond duties</span>
-                <input type="checkbox" id="rule-en-firestore" ${enabled.firestoreAdmin !== false ? "checked" : ""}>
-              </label>
-              <input type="number" id="rule-pts-firestore" class="form-control" min="0" max="100" value="${pts.firestoreAdmin ?? 50}">
-              <small>Application admin role exceeding support role (default: 50)</small>
-            </div>
+
             <div class="rule-input-group">
               <label for="rule-pts-bypass">
                 <span>Direct admin grant bypass</span>
