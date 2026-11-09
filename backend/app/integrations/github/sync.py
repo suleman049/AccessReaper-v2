@@ -391,51 +391,7 @@ def run_github_sync(
                         db.flush()
                         sync_run.assignments_created += 1
 
-                        # Flag unapproved out-of-band GitHub grant for administrator decision review
-                        existing_req = (
-                            db.query(AccessRequest)
-                            .filter(
-                                AccessRequest.identity_id == identity.id,
-                                AccessRequest.resource_id == resource.id,
-                                AccessRequest.status.in_(["Pending", "Approved"]),
-                            )
-                            .first()
-                        )
-                        if not existing_req and trigger != "seed":
-                            req_ids = db.query(AccessRequest.id).all()
-                            max_req_num = 1050
-                            for (rid,) in req_ids:
-                                if rid.startswith("REQ-"):
-                                    try:
-                                        max_req_num = max(max_req_num, int(rid[4:]))
-                                    except ValueError:
-                                        pass
-                            direct_req_id = f"REQ-{max_req_num + 1}"
-                            direct_req = AccessRequest(
-                                id=direct_req_id,
-                                identity_id=identity.id,
-                                resource_id=resource.id,
-                                requested_access=access_level,
-                                type="Direct GitHub Grant Review",
-                                duration_hours=None,
-                                business_reason=f"Direct access granted on GitHub repository {repo_full_name} for @{login} outside AccessReaper. Review to ratify or revoke immediately.",
-                                risk="High" if access_level == "Admin" else ("Medium" if is_outside else "Low"),
-                                status="Pending",
-                                requested_at=now,
-                                requested_text="Just now",
-                            )
-                            db.add(direct_req)
-                            try:
-                                from app.engine.notification_service import broadcast_notification
-                                broadcast_notification(
-                                    db=db,
-                                    event_type="direct_access_detected",
-                                    title=f"Direct GitHub grant: @{login}",
-                                    message=f"@{login} was granted {access_level} access directly on {repo_full_name}. Review pending in approvals.",
-                                    link="#approvals",
-                                )
-                            except Exception as notif_err:
-                                logger.warning("Could not dispatch direct grant notification: %s", notif_err)
+                        # Existing repository assignments synced from GitHub
 
             # 4. Handle disappeared assignments (mark revoked_externally, do not delete)
             all_github_assignments = (
