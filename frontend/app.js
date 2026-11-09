@@ -136,7 +136,7 @@ function auditPage(){
         <span class="register-count">${filtered.length} of ${people.length} assignments</span>
       </div>
 
-      <div class="audit-triage-tabs" style="display:flex;gap:6px;padding:8px 12px;background:var(--bg-subtle, #f8fafc);border-radius:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
+      <div class="audit-triage-tabs" style="display:flex;gap:6px;padding:8px 12px;background:var(--surface-soft, #f1f4f9);border:1px solid var(--border, #e2e8f0);border-radius:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
         <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-right:4px;">Triage Segments:</span>
         <button type="button" class="btn btn-sm ${state.auditSegment==='all'?'btn-primary':'btn-outline'}" data-audit-segment="all" style="border-radius:6px;font-size:12px;font-weight:600;">
           ${uiIcon('layers', 13)} All (${countAll})

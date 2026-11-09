@@ -5,6 +5,8 @@ html:not([data-theme='dark']) {
   --surface-soft: #e9ede7;
   --surface-hover: #e3e8e1;
   --input-surface: #f5f6f2;
+  --bg-subtle: #e9ede7;
+  --surface-subtle: #f5f6f2;
   --border: #d5dcd3;
   --soft-border: #dfe4dc;
   --text: #202620;

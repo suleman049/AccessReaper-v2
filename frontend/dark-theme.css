@@ -1,5 +1,5 @@
 /* Explicit dark surfaces: text and controls remain readable without image inversion. */
-html[data-theme='dark']{--bg:#10151d;--surface:#191f29;--surface-soft:#202733;--surface-hover:#262f3d;--input-surface:#151b24;--border:#303a48;--soft-border:#293341;--text:#e6edf5;--muted:#a2afbf;--subtle:#8797ab;--accent-soft:#38281f;--link:#ff946d;--good-soft:#1c372b;--good-text:#82d4a4;--warn-soft:#3b3120;--warn-text:#e2bc78;--bad-soft:#3a252b;--bad-text:#f39890;--shadow:0 3px 17px #0000000b}
+html[data-theme='dark']{--bg:#10151d;--surface:#191f29;--surface-soft:#202733;--surface-hover:#262f3d;--input-surface:#151b24;--bg-subtle:#151b24;--surface-subtle:#1a222d;--border:#303a48;--soft-border:#293341;--text:#e6edf5;--muted:#a2afbf;--subtle:#8797ab;--accent-soft:#38281f;--link:#ff946d;--good-soft:#1c372b;--good-text:#82d4a4;--warn-soft:#3b3120;--warn-text:#e2bc78;--bad-soft:#3a252b;--bad-text:#f39890;--shadow:0 3px 17px #0000000b}
 [data-theme='dark'] body{background:var(--bg);color:var(--text)}
 [data-theme='dark'] .sidebar,[data-theme='dark'] .topbar,[data-theme='dark'] .card,[data-theme='dark'] .risk-hero,[data-theme='dark'] .modal-content,[data-theme='dark'] .review-modal-content{background:var(--surface);border-color:var(--border);color:var(--text)}
 [data-theme='dark'] .workspace-switch,[data-theme='dark'] .profile-card,[data-theme='dark'] .top-divider,[data-theme='dark'] .app-footer,[data-theme='dark'] .hero-meta,[data-theme='dark'] .approval-info,[data-theme='dark'] .timeline-item::before{border-color:var(--border)}
@@ -33,3 +33,7 @@ html[data-theme='dark']{--bg:#10151d;--surface:#191f29;--surface-soft:#202733;--
 
 [data-theme='dark'] .btn.btn-primary,[data-theme='dark'] .auth-submit.btn{background:#c93812;border-color:#c93812;color:#fff}[data-theme='dark'] .btn.btn-primary:hover,[data-theme='dark'] .btn.btn-primary:focus-visible,[data-theme='dark'] .auth-submit.btn:hover{background:#ad2d0c;border-color:#ad2d0c;color:#fff}[data-theme='dark'] .btn.btn-primary:disabled{background:#77564c;border-color:#77564c;opacity:1;color:#fff}
 [data-theme='dark'] .dry-run-badge{background:#302818;border-color:#796039;color:#f2ce83}[data-theme='dark'] .decision-error{color:#ffaba3}[data-theme='dark'] #review-note[aria-invalid='true']{border-color:#e58e84}
+[data-theme='dark'] .audit-triage-tabs{background:var(--surface-soft)!important;border:1px solid var(--border)!important}
+[data-theme='dark'] .audit-triage-tabs .btn-outline{background:var(--input-surface)!important;border-color:var(--border)!important;color:var(--text)!important}
+[data-theme='dark'] .audit-triage-tabs .btn-outline:hover{background:var(--surface-hover)!important;border-color:var(--border)!important;color:#fff!important}
+[data-theme='dark'] .audit-triage-tabs span{color:var(--muted)!important}
