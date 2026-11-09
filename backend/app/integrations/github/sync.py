@@ -351,6 +351,7 @@ def run_github_sync(
 
                     is_outside = login in outside_logins
                     if existing:
+                        prev_access = existing.access_level
                         existing.identity_id = identity.id
                         existing.access_level = access_level
                         existing.is_outside_collaborator = is_outside
@@ -358,6 +359,12 @@ def run_github_sync(
                             existing.last_active_at = last_active_at
                             existing.last_active_text = last_active_text
                         existing.external_status = "active"
+                        # Drift detection: if permission level changed on GitHub, re-open finding
+                        if prev_access != access_level:
+                            existing.resolved = False
+                            f_rec = db.query(Finding).filter(Finding.assignment_id == existing.id).first()
+                            if f_rec:
+                                f_rec.status = "Open"
                         # If an old temporary lease already reached its expiration timestamp, clear is_temporary
                         if getattr(existing, "is_temporary", False) and getattr(existing, "expires_at", None):
                             if _normalize_utc(existing.expires_at) <= now:

@@ -412,6 +412,10 @@ class GitHubClient:
         resp.raise_for_status()
         return {"success": True, "status_code": resp.status_code}
 
+    # Alias for auto-pilot compatibility
+    def set_repository_collaborator_permission(self, org: str, repo: str, username: str, permission: str):
+        return self.update_repository_collaborator_permission(org=org, repo=repo, username=username, permission=permission)
+
     def close(self):
         self._http.close()
 
