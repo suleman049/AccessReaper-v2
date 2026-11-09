@@ -72,6 +72,13 @@ def broadcast_notification(
 
 
 def notify_audit_completed(db: Session, run: AuditRun) -> list[Notification]:
+    # Deduplication guard: do not create duplicate notifications for the same audit run
+    existing = db.query(Notification).filter(
+        Notification.message.like(f"%Audit {run.id}%")
+    ).first()
+    if existing:
+        return []
+
     notifs = []
     # 1. Audit completed notification
     n1 = broadcast_notification(

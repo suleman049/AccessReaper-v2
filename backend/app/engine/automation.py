@@ -140,36 +140,9 @@ def _do_execute_automatic_cycle(db: Session, actor: str = "Automatic audit") -> 
         getattr(audit_run, "medium", 0),
     )
 
-    # 4. Trigger in-app notifications
-    try:
-        from app.engine.notification_service import notify_audit_completed
-
-        notify_audit_completed(db, audit_run)
-    except Exception as exc:
-        logger.warning("Could not trigger in-app audit notifications: %s", exc)
-
-    # 5. Dispatch daily audit digest email to active administrators
-    try:
-        from app.core.config import settings
-        from app.engine.email_service import is_smtp_configured, send_daily_audit_digest
-
-        if is_smtp_configured():
-            admins = db.query(Identity).filter(Identity.job_role == "Admin").all()
-            admin_emails = [
-                a.email
-                for a in admins
-                if a.email
-                and not a.email.endswith("@github.unmatched")
-                and not a.email.endswith(".corp")
-                and not a.email.endswith("@example.com")
-            ]
-            for owner_e in ["24sw049@gmail.com", "itzsuleman110@gmail.com"]:
-                if owner_e not in admin_emails:
-                    admin_emails.append(owner_e)
-            if admin_emails:
-                send_daily_audit_digest(db, audit_run, admin_emails)
-    except Exception as exc:
-        logger.warning("Could not dispatch daily audit digest email: %s", exc)
+    # 4. In-app notifications and daily audit digest email are already
+    # dispatched inside execute_audit_run() to prevent duplicate alerts.
+    logger.debug("Notifications and digest handled inside execute_audit_run for run_id=%s", getattr(audit_run, "id", None))
 
     return audit_run
 
