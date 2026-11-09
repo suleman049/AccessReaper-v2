@@ -281,24 +281,14 @@ def run_github_sync(
 
                     seen_assignment_keys.add((resource.id, login))
 
-                    # Look up activity across commits and public events
+                    # Look up activity strictly on THIS repository
                     last_active_at = None
-                    last_active_text = "Not recorded"
+                    last_active_text = "No repo commits"
                     try:
-                        last_commit = None
-                        if access_level in ("Admin", "Write"):
-                            last_commit = client.get_last_commit(org_name, repo_short_name, login)
-                            if last_commit and last_commit.get("commit", {}).get("author", {}).get("date"):
-                                commit_date_str = last_commit.get("commit", {}).get("author", {}).get("date")
-                                last_active_at = datetime.fromisoformat(commit_date_str.replace("Z", "+00:00"))
-
-                        # Fallback to general user activity on GitHub
-                        if not last_active_at:
-                            if login not in user_activity_cache:
-                                user_activity_cache[login] = client.get_user_last_activity(login)
-                            act = user_activity_cache.get(login)
-                            if act and act.get("date"):
-                                last_active_at = datetime.fromisoformat(act["date"].replace("Z", "+00:00"))
+                        last_commit = client.get_last_commit(org_name, repo_short_name, login)
+                        if last_commit and last_commit.get("commit", {}).get("author", {}).get("date"):
+                            commit_date_str = last_commit.get("commit", {}).get("author", {}).get("date")
+                            last_active_at = datetime.fromisoformat(commit_date_str.replace("Z", "+00:00"))
 
                         if last_active_at:
                             days_ago = max(0, (now - _normalize_utc(last_active_at)).days)
@@ -310,6 +300,8 @@ def run_github_sync(
                                 last_active_text = f"{days_ago} days ago (Dormant)"
                             else:
                                 last_active_text = f"{days_ago} days ago"
+                        else:
+                            last_active_text = "No repo commits"
 
                         # Auto-discover real email from git commit author if identity is unmatched
                         if last_commit:
