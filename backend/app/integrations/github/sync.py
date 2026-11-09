@@ -226,19 +226,18 @@ def run_github_sync(
                 resource = db.query(Resource).filter(Resource.name == repo_full_name).first()
                 if not resource:
                     is_sensitive = (
-                        repo_data.get("private", False)
-                        or "api" in repo_short_name.lower()
+                        "api" in repo_short_name.lower()
                         or "auth" in repo_short_name.lower()
                         or "gateway" in repo_short_name.lower()
+                        or "billing" in repo_short_name.lower()
+                        or "terraform" in repo_short_name.lower()
                     )
                     resource = Resource(
                         name=repo_full_name,
                         source="GitHub",
                         is_sensitive=is_sensitive,
                         is_archived=is_archived,
-                        project="Platform"
-                        if "api" in repo_short_name or "gateway" in repo_short_name
-                        else repo_short_name.capitalize(),
+                        project="Engineering",
                     )
                     db.add(resource)
                     db.flush()
