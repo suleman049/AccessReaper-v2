@@ -185,6 +185,12 @@ def test_approval_reject_flow(client: TestClient, auth_headers: dict):
 
 
 def test_audit_run_and_idempotency(client: TestClient, auth_headers: dict):
+    import time
+    from app.engine.audit_service import _audit_lock
+    for _ in range(50):
+        if not _audit_lock.locked():
+            break
+        time.sleep(0.1)
     # Run audit 1
     resp1 = client.post("/api/audits/run", headers=auth_headers)
     assert resp1.status_code == 200

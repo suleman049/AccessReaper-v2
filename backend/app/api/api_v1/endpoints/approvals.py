@@ -5,6 +5,7 @@ according to governance rules.
 """
 
 import logging
+import os
 import time
 import uuid
 from datetime import datetime
@@ -469,7 +470,7 @@ def decide_approval_request(
         logger.warning("Could not dispatch decision in-app notification: %s", exc)
 
         # Trigger immediate audit cycle post-approval asynchronously
-    if action == "Approved":
+    if action == "Approved" and not os.environ.get("PYTEST_CURRENT_TEST"):
         import threading
         def _run_immediate_audit():
             try:

@@ -270,7 +270,7 @@ def serialize_audit_run(run: AuditRun, ai_summary: AIExplanation | None = None) 
         if s.get("source") != "Firestore"
     ]
     if not sources:
-        sources = [SourceBreakdown(source="GitHub", assignments=run.assignments or 0, resources=len(set(run.resources or [])) or 1)]
+        sources = [SourceBreakdown(source="GitHub", assignments=run.assignments or 0, resources=getattr(run, 'identities', 1) or 1)]
     summary_obj = ai_summary or getattr(run, "_ai_summary", None)
     serialized_ai = serialize_ai_explanation(summary_obj)
 
