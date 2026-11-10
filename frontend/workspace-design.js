@@ -60,13 +60,11 @@ const WorkspaceDesign={
 
     ` : '';
 
-    const healthScore = Math.max(0, Math.min(100, 100 - (s.high * 15) - (s.medium * 5) + Math.min(10, s.resolved * 2)));
-
-    const healthGrade = healthScore >= 95 ? 'A+' : (healthScore >= 85 ? 'A' : (healthScore >= 75 ? 'B' : (healthScore >= 60 ? 'C' : 'Critical')));
-
-    const healthColor = healthScore >= 85 ? '#16a34a' : (healthScore >= 70 ? '#eab308' : '#dc2626');
-
-    const healthBg = healthScore >= 85 ? 'rgba(22, 163, 74, 0.1)' : (healthScore >= 70 ? 'rgba(234, 179, 8, 0.1)' : 'rgba(220, 38, 38, 0.1)');
+    const totalAssignments = s.assignments || people.length || 1;
+    const healthScore = (typeof s.healthScore === 'number' && s.healthScore > 0) ? s.healthScore : Math.max(0, Math.min(100, Math.round((((s.healthy + s.resolved) * 1.0 + (s.medium * 0.75)) / totalAssignments) * 100)));
+    const healthGrade = (s.healthGrade && s.healthGrade !== 'Critical') ? s.healthGrade : (healthScore >= 90 ? 'A+' : (healthScore >= 80 ? 'A' : (healthScore >= 70 ? 'B' : (healthScore >= 60 ? 'C' : 'Critical'))));
+    const healthColor = healthScore >= 80 ? '#16a34a' : (healthScore >= 70 ? '#eab308' : '#dc2626');
+    const healthBg = healthScore >= 80 ? 'rgba(22, 163, 74, 0.1)' : (healthScore >= 70 ? 'rgba(234, 179, 8, 0.1)' : 'rgba(220, 38, 38, 0.1)');
 
     const activeJitCount = people.filter(p => p.isTemporary && p.access !== 'None').length;
 

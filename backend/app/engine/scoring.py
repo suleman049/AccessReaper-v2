@@ -743,20 +743,25 @@ def calculate_security_health_score(assignments: list[Any], pending_count: int =
             if days is not None and days >= 80 and getattr(a, "access_level", "None") != "None":
                 dormant_count += 1
 
-    # Base score = 100
-    penalty = (high_unresolved * 15) + (medium_unresolved * 5) + (min(pending_count, 10) * 2)
-    bonus = min(10, resolved_count * 2)
+    healthy_count = sum(1 for a in assignments if not a.resolved and getattr(a, "current_risk", "Low") == "Low")
 
-    raw_score = 100 - penalty + bonus
-    score = max(0, min(100, raw_score))
+    # Weighted proportional compliance:
+    # Healthy & Resolved = 100% compliant
+    # Medium (acceptable operational risk) = 75% compliant
+    # High (critical violation) = 0% compliant
+    weighted_compliant = ((healthy_count + resolved_count) * 1.0) + (medium_unresolved * 0.75)
+    base_ratio = (weighted_compliant / total) * 100.0
+    pending_penalty = min(5.0, pending_count * 0.5)
 
-    if score >= 95:
+    score = int(round(max(0.0, min(100.0, base_ratio - pending_penalty))))
+
+    if score >= 90:
         grade = "A+"
         status_text = "Optimal"
-    elif score >= 85:
+    elif score >= 80:
         grade = "A"
         status_text = "Good"
-    elif score >= 75:
+    elif score >= 70:
         grade = "B"
         status_text = "Fair"
     elif score >= 60:
